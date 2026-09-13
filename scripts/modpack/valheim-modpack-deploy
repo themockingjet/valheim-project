@@ -51,6 +51,9 @@ if [[ ! -d "$DASHBOARD_STATE/pending" || ! -d "$DASHBOARD_STATE/exports" ||
     ! -d "$DASHBOARD_STATE/state" ]]; then
     fail 'dashboard state directories are missing; deploy the dashboard first'
 fi
+if [[ -e "$DASHBOARD_STATE/pending/restart-request.json" ]]; then
+    fail 'restart-only request is pending; resolve it before retiring the restart-only action'
+fi
 if [[ "$enable_dashboard_actions" == true ]] &&
     /usr/bin/find "$DASHBOARD_STATE/pending" -maxdepth 1 -type f -name '*-request.json' -print -quit |
         /usr/bin/grep -q .; then
@@ -73,13 +76,16 @@ install -o root -g valheim -m 0750 "$SCRIPTS_ROOT/valheim-modpack" \
 install -o root -g root -m 0755 \
     "$SCRIPTS_ROOT/valheim-maintenance" \
     "$SCRIPTS_ROOT/valheim-manifest-apply" \
-    "$SCRIPTS_ROOT/valheim-restart-request" \
+    "$SCRIPTS_ROOT/valheim-update-request" \
     "$SCRIPTS_ROOT/valheim-rollback-request" \
     "$SCRIPTS_ROOT/valheim-world-backup-inventory" \
     "$SCRIPTS_ROOT/valheim-world-restore" \
     "$SCRIPTS_ROOT/valheim-world-restore-recover" \
     "$SCRIPTS_ROOT/valheim-dashboard-actions" \
     /usr/local/libexec/
+/usr/bin/rm -f -- \
+    /usr/local/libexec/valheim-restart-request \
+    "$DASHBOARD_STATE/state/restart-result.json"
 install -o root -g root -m 0644 \
     "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.path" \
     "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.service" \

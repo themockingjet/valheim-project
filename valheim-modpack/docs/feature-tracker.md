@@ -29,17 +29,16 @@
 - [x] `apply-pending-manifest` CLI subcommand wired through the same
   `update.lock` concurrency guard as `resolve`/`update`/`rollback` (2 CLI
   parser tests).
-- [x] `valheim-manifest-apply`, `valheim-restart-request`, and
+- [x] `valheim-manifest-apply`, `valheim-update-request`, and
   `valheim-rollback-request` root wrapper scripts implemented: independent
   schema re-validation, bounded result files only (no raw stdout/stderr/
   exception data), consumed-request cleanup on every path, and a shared
-  15-minute restart cooldown for the two helpers capable of restarting
-  Valheim. Installed with their path watchers enabled (2026-09-13); no
+  15-minute restart cooldown for rollback and restore. Installed with their path watchers enabled (2026-09-13); no
   request was pending or submitted during installation, so Valheim was not
   restarted.
 - [ ] Live-authorized rehearsal of the manifest-apply helper against the real
   pending directory and `/opt/valheim/modpack`.
-- [ ] Live-authorized rehearsal of the restart-only and rollback helpers,
+- [ ] Live-authorized rehearsal of the immediate-maintenance and rollback helpers,
   including their cooldown and health check, against the running server.
 
 ## World backup management (B7 source)

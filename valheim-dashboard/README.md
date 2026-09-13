@@ -97,7 +97,9 @@ The dashboard will:
 - search a bounded, fixed-source Hexium catalogue and require explicit package
   selection to build a removable upcoming-manifest preview before queueing;
 - validate and queue Hexium manifest changes for the next maintenance window;
-- offer confirmed restart-only and rollback requests through scoped helpers.
+- offer an explicitly confirmed update-and-restart action that runs the same
+  maintenance workflow immediately;
+- offer confirmed rollback requests through scoped helpers.
 
 The frontend and backend will not directly modify `/opt/valheim/server`,
 `/opt/valheim/data`, or the active modpack deployment.

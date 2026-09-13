@@ -21,14 +21,14 @@ class AuditTrailTests(unittest.TestCase):
     def test_record_event_appends_and_reads_back(self) -> None:
         audit.record_event(
             self.audit_directory,
-            action="restart_request",
+            action="update_request",
             outcome="accepted",
             detail="queued",
             remote_address="127.0.0.1",
         )
         events = audit.read_recent_events(self.audit_directory)
         self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["action"], "restart_request")
+        self.assertEqual(events[0]["action"], "update_request")
         self.assertEqual(events[0]["outcome"], "accepted")
         self.assertEqual(events[0]["detail"], "queued")
         self.assertEqual(events[0]["remote_address"], "127.0.0.1")
@@ -38,9 +38,20 @@ class AuditTrailTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             audit.record_event(self.audit_directory, action="delete_everything", outcome="accepted")
 
+    def test_record_event_accepts_update_requests(self) -> None:
+        audit.record_event(
+            self.audit_directory,
+            action="update_request",
+            outcome="accepted",
+        )
+        self.assertEqual(
+            audit.read_recent_events(self.audit_directory)[-1]["action"],
+            "update_request",
+        )
+
     def test_record_event_rejects_unsupported_outcome(self) -> None:
         with self.assertRaises(ValueError):
-            audit.record_event(self.audit_directory, action="restart_request", outcome="maybe")
+            audit.record_event(self.audit_directory, action="update_request", outcome="maybe")
 
     def test_detail_is_bounded(self) -> None:
         audit.record_event(
@@ -56,7 +67,7 @@ class AuditTrailTests(unittest.TestCase):
         for index in range(audit.MAX_AUDIT_EVENTS + 25):
             audit.record_event(
                 self.audit_directory,
-                action="restart_request",
+                action="update_request",
                 outcome="accepted",
                 detail=str(index),
             )

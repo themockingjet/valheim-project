@@ -19,12 +19,12 @@ import tempfile
 from typing import Any
 
 MANIFEST_REQUEST_FILE = "manifest-request.json"
-RESTART_REQUEST_FILE = "restart-request.json"
+UPDATE_REQUEST_FILE = "update-request.json"
 ROLLBACK_REQUEST_FILE = "rollback-request.json"
 WORLD_RESTORE_REQUEST_FILE = "world-restore-request.json"
 
 MANIFEST_RESULT_FILE = "manifest-result.json"
-RESTART_RESULT_FILE = "restart-result.json"
+UPDATE_RESULT_FILE = "update-result.json"
 ROLLBACK_RESULT_FILE = "rollback-result.json"
 WORLD_RESTORE_RESULT_FILE = "world-restore-result.json"
 
@@ -131,12 +131,12 @@ def _validate_reason(value: object) -> str:
     return value
 
 
-def build_restart_request(payload: object) -> dict[str, Any]:
+def build_update_request(payload: object) -> dict[str, Any]:
     body = _require_mapping(payload, "request body")
     if set(body) - {"confirmation", "reason"}:
         raise ValidationError("request body has an unsupported field")
-    if body.get("confirmation") != "RESTART":
-        raise ValidationError('confirmation must be exactly "RESTART"')
+    if body.get("confirmation") != "UPDATE":
+        raise ValidationError('confirmation must be exactly "UPDATE"')
     return {
         "schema_version": 1,
         "requested_at": _now_iso(),

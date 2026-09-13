@@ -351,15 +351,15 @@ function ConfirmedAction({ id, title, description, path, confirmationWord, csrfT
   )
 }
 
-export function RestartAction({ csrfToken }) {
+export function UpdateAction({ csrfToken }) {
   return (
     <ConfirmedAction
-      id="restart-action"
-      title="Restart Valheim"
-      description="Submits a scoped restart-only request to the root-owned helper. Subject to a
-        cooldown and does not change the 00:00 / 12:00 (Asia/Shanghai) maintenance cadence."
-      path="/api/pending/restart"
-      confirmationWord="RESTART"
+      id="update-action"
+      title="Run maintenance now"
+      description="Runs the same full workflow as scheduled maintenance: validates the server install,
+        resolves and activates the current manifest, then restarts Valheim with a ready health check."
+      path="/api/pending/update"
+      confirmationWord="UPDATE"
       csrfToken={csrfToken}
     />
   )

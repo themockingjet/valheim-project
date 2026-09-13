@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AuditTrail,
   ManifestEditor,
-  RestartAction,
   RollbackAction,
+  UpdateAction,
   WorldBackupManager,
 } from './Actions'
 import './App.css'
@@ -513,7 +513,7 @@ function OperationsOverview({ snapshot, loadedAt, refreshError, refreshing }) {
           <SectionHeading
             eyebrow="Scheduled work"
             title="Maintenance"
-            description="Latest known maintenance activity"
+            description="Scheduled and full maintenance runs; manual service restarts appear only in Server log"
             headingId="maintenance-heading"
           />
           <dl className="detail-list">
@@ -637,7 +637,7 @@ function OperationsOverview({ snapshot, loadedAt, refreshError, refreshing }) {
         />
         <div className="logs-grid">
           <LogPanel title="Server log" lines={logs.server} />
-          <LogPanel title="Maintenance log" lines={logs.maintenance} />
+          <LogPanel title="Maintenance journal" lines={logs.maintenance} />
         </div>
       </section>
     </div>
@@ -689,7 +689,7 @@ function App() {
       {sessionError && <p className="action-result error">{sessionError}</p>}
       <ManifestEditor csrfToken={csrfToken} />
       <div className="content-grid">
-        <RestartAction csrfToken={csrfToken} />
+        <UpdateAction csrfToken={csrfToken} />
         <RollbackAction csrfToken={csrfToken} />
       </div>
       <WorldBackupManager csrfToken={csrfToken} />

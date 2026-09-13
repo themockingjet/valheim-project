@@ -42,11 +42,11 @@ PENDING_ACTIONS = {
         pending.build_manifest_request,
         "manifest_submit",
     ),
-    "restart": (
-        pending.RESTART_REQUEST_FILE,
-        pending.RESTART_RESULT_FILE,
-        pending.build_restart_request,
-        "restart_request",
+    "update": (
+        pending.UPDATE_REQUEST_FILE,
+        pending.UPDATE_RESULT_FILE,
+        pending.build_update_request,
+        "update_request",
     ),
     "rollback": (
         pending.ROLLBACK_REQUEST_FILE,
@@ -110,7 +110,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if path in {
             "/api/pending/manifest",
-            "/api/pending/restart",
+            "/api/pending/update",
             "/api/pending/rollback",
             "/api/pending/world-restore",
         }:
@@ -143,7 +143,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in {
             "/api/pending/manifest",
-            "/api/pending/restart",
+            "/api/pending/update",
             "/api/pending/rollback",
             "/api/pending/world-restore",
         }:

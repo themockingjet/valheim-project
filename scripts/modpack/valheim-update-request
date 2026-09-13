@@ -1,0 +1,75 @@
+#!/bin/bash
+# Root-owned helper for an explicitly confirmed, immediate maintenance run.
+# It delegates update, release activation, restart, rollback, and ready checks
+# to the same service used by the scheduled maintenance timer.
+set -Eeuo pipefail
+
+readonly PENDING_REQUEST=/var/lib/valheim-dashboard/pending/update-request.json
+readonly STATE_DIRECTORY=/var/lib/valheim-dashboard/state
+readonly RESULT_FILE="$STATE_DIRECTORY/update-result.json"
+readonly MAINTENANCE_UNIT=valheim-restart.service
+
+log() {
+    printf 'valheim-update-request event=%s %s\n' "$1" "${2:-}"
+}
+
+write_result() {
+    local outcome=$1 message=$2
+    install -d -o root -g valheim-ui -m 0750 "$STATE_DIRECTORY"
+    local temporary
+    temporary=$(mktemp "$STATE_DIRECTORY/.update-result.XXXXXX")
+    printf '{"outcome":"%s","message":"%s"}\n' "$outcome" "$message" >"$temporary"
+    chmod 0640 "$temporary"
+    chown root:valheim-ui "$temporary"
+    mv -Tf -- "$temporary" "$RESULT_FILE"
+}
+
+request_is_valid() {
+    /usr/bin/python3 - "$PENDING_REQUEST" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as source:
+        request = json.load(source)
+    valid = (
+        isinstance(request, dict)
+        and set(request) == {"schema_version", "requested_at", "reason"}
+        and request["schema_version"] == 1
+        and isinstance(request["requested_at"], str)
+        and len(request["requested_at"]) <= 40
+        and isinstance(request["reason"], str)
+        and len(request["reason"]) <= 200
+    )
+except (OSError, TypeError, UnicodeDecodeError, json.JSONDecodeError):
+    valid = False
+raise SystemExit(0 if valid else 1)
+PY
+}
+
+if [[ ! -f "$PENDING_REQUEST" ]]; then
+    log skipped 'reason=no_pending_request'
+    exit 0
+fi
+trap 'rm -f -- "$PENDING_REQUEST"' EXIT
+
+if ! request_is_valid; then
+    log rejected 'reason=invalid_request_schema'
+    write_result rejected 'The update request failed independent schema validation.'
+    exit 0
+fi
+
+if /usr/bin/systemctl is-active --quiet "$MAINTENANCE_UNIT"; then
+    log rejected 'reason=maintenance_already_running'
+    write_result rejected 'A maintenance run is already in progress; try again after it completes.'
+    exit 0
+fi
+
+log update_started
+if /usr/bin/systemctl start "$MAINTENANCE_UNIT"; then
+    log update_succeeded
+    write_result success 'Update and restart completed; Valheim reached the ready marker.'
+else
+    log update_failed
+    write_result failed 'The update and restart maintenance run failed; review the maintenance log.'
+fi

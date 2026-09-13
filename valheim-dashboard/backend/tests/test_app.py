@@ -369,32 +369,36 @@ class PendingWorkflowTests(unittest.TestCase):
         self.assertTrue(cookie.startswith("vd_session="))
         self.assertTrue(csrf)
 
-    def test_valid_restart_request_is_accepted_and_audited(self) -> None:
+    def test_valid_update_request_is_accepted_and_audited(self) -> None:
         cookie, csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE", "reason": "install queued packages"},
             cookie=cookie,
             csrf=csrf,
             host=self.allowed_host,
             origin=f"http://{self.allowed_host}",
         )
         self.assertEqual(response.status, 202)
-        payload = json.loads(response.read())
-        self.assertEqual(payload["request"]["schema_version"], 1)
-
         request_on_disk = pending.read_pending_request(
-            self.pending_directory, pending.RESTART_REQUEST_FILE
+            self.pending_directory, pending.UPDATE_REQUEST_FILE
         )
         self.assertIsNotNone(request_on_disk)
+        self.assertEqual(request_on_disk["reason"], "install queued packages")
+        self.assertEqual(
+            audit.read_recent_events(self.audit_directory)[-1]["action"],
+            "update_request",
+        )
+        connection = self._connection()
+        connection.request("GET", "/api/pending/update")
+        status_response = connection.getresponse()
+        status_payload = json.loads(status_response.read())
+        self.assertTrue(status_payload["pending"])
+        self.assertEqual(status_payload["request"]["reason"], "install queued packages")
 
-        events = audit.read_recent_events(self.audit_directory)
-        self.assertEqual(events[-1]["action"], "restart_request")
-        self.assertEqual(events[-1]["outcome"], "accepted")
-
-    def test_duplicate_restart_request_is_rejected_as_conflict(self) -> None:
+    def test_restart_only_request_is_not_available(self) -> None:
         cookie, csrf = self._get_session()
-        self._post(
+        response = self._post(
             "/api/pending/restart",
             {"confirmation": "RESTART"},
             cookie=cookie,
@@ -402,9 +406,22 @@ class PendingWorkflowTests(unittest.TestCase):
             host=self.allowed_host,
             origin=f"http://{self.allowed_host}",
         )
+        self.assertEqual(response.status, 405)
+        self.assertFalse((self.pending_directory / "restart-request.json").exists())
+
+    def test_duplicate_update_request_is_rejected_as_conflict(self) -> None:
+        cookie, csrf = self._get_session()
+        self._post(
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
+            cookie=cookie,
+            csrf=csrf,
+            host=self.allowed_host,
+            origin=f"http://{self.allowed_host}",
+        )
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=csrf,
             host=self.allowed_host,
@@ -415,8 +432,8 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_missing_csrf_token_is_rejected(self) -> None:
         cookie, _csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=None,
             host=self.allowed_host,
@@ -428,8 +445,8 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_mismatched_origin_is_rejected(self) -> None:
         cookie, csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=csrf,
             host=self.allowed_host,
@@ -441,8 +458,8 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_mismatched_host_is_rejected(self) -> None:
         cookie, csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=csrf,
             host="evil.example",
@@ -454,8 +471,8 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_non_json_content_type_is_rejected(self) -> None:
         cookie, csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=csrf,
             host=self.allowed_host,
@@ -467,8 +484,8 @@ class PendingWorkflowTests(unittest.TestCase):
 
     def test_no_session_is_rejected(self) -> None:
         response = self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             host=self.allowed_host,
             origin=f"http://{self.allowed_host}",
         )
@@ -478,7 +495,7 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_invalid_confirmation_is_rejected_and_audited(self) -> None:
         cookie, csrf = self._get_session()
         response = self._post(
-            "/api/pending/restart",
+            "/api/pending/update",
             {"confirmation": "please"},
             cookie=cookie,
             csrf=csrf,
@@ -605,8 +622,8 @@ class PendingWorkflowTests(unittest.TestCase):
     def test_audit_endpoint_reports_bounded_events(self) -> None:
         cookie, csrf = self._get_session()
         self._post(
-            "/api/pending/restart",
-            {"confirmation": "RESTART"},
+            "/api/pending/update",
+            {"confirmation": "UPDATE"},
             cookie=cookie,
             csrf=csrf,
             host=self.allowed_host,
@@ -616,15 +633,15 @@ class PendingWorkflowTests(unittest.TestCase):
         connection.request("GET", "/api/audit")
         response = connection.getresponse()
         payload = json.loads(response.read())
-        self.assertEqual(payload["events"][-1]["action"], "restart_request")
+        self.assertEqual(payload["events"][-1]["action"], "update_request")
 
     def test_oversized_body_is_rejected(self) -> None:
         cookie, csrf = self._get_session()
         connection = self._connection()
-        big_body = json.dumps({"confirmation": "RESTART", "reason": "x" * 200000}).encode("utf-8")
+        big_body = json.dumps({"confirmation": "UPDATE", "reason": "x" * 200000}).encode("utf-8")
         connection.request(
             "POST",
-            "/api/pending/restart",
+            "/api/pending/update",
             body=big_body,
             headers={
                 "Host": self.allowed_host,

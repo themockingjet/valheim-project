@@ -13,7 +13,7 @@ fi
 
 for helper in \
     valheim-manifest-apply \
-    valheim-restart-request \
+    valheim-update-request \
     valheim-rollback-request \
     valheim-world-restore; do
     /usr/local/libexec/"$helper"

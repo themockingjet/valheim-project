@@ -51,7 +51,7 @@ deliverable. A feature advances only when all applicable gates are complete.
 | `maintenance-status` | full-stack | Show next maintenance and last outcome. | planned |
 | `modpack-status` | full-stack | Show active release and locked Hexium packages. | planned |
 | `pending-manifest` | full-stack | Validate and queue a mod manifest for maintenance. | planned |
-| `restart-request` | full-stack | Submit a confirmed restart-only request through a scoped helper. | planned |
+| `update-request` | full-stack | Submit a confirmed immediate maintenance request through the scheduled-maintenance workflow. | planned |
 | `rollback-request` | full-stack | Submit a confirmed known-good rollback request through a scoped helper. | planned |
 
 ## Workspace commands

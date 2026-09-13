@@ -86,7 +86,7 @@ read:
 | Pending file | Helper script | Unit pair | Effect |
 | --- | --- | --- | --- |
 | `manifest-request.json` | [`valheim-manifest-apply`](../scripts/modpack/valheim-manifest-apply) | `valheim-dashboard-actions.{path,service}` | Re-validates the request against the same manifest schema as `load_manifest`, confirms it resolves, and atomically replaces `manifest.yaml`. **Never** stops/starts/restarts `valheim.service` or activates a release; it only changes what the next scheduled 00:00/12:00 maintenance run will apply. |
-| `restart-request.json` | [`valheim-restart-request`](../scripts/modpack/valheim-restart-request) | `valheim-dashboard-actions.{path,service}` | Restarts `valheim.service` on demand (rate-limited by a 15-minute cooldown) and waits for the `Game server connected` marker, reusing the maintenance orchestrator's log-tail health check. **Does not** touch the manifest, lock, cache, or releases. |
+| `update-request.json` | [`valheim-update-request`](../scripts/modpack/valheim-update-request) | `valheim-dashboard-actions.{path,service}` | Starts `valheim-restart.service` immediately. It runs the complete maintenance workflow: validates the install, resolves and activates the current manifest, restarts Valheim, automatically rolls back a failed activation, and waits for `Game server connected`. |
 | `rollback-request.json` | [`valheim-rollback-request`](../scripts/modpack/valheim-rollback-request) | `valheim-dashboard-actions.{path,service}` | Stops the server, runs `valheim-modpack rollback --allow-active`, restarts, and waits for the same health marker. Shares the restart helper's cooldown so a rollback and a restart cannot both bypass the limit back-to-back. |
 | `world-restore-request.json` | [`valheim-world-restore`](../scripts/modpack/valheim-world-restore) | `valheim-dashboard-actions.{path,service}` | Restores one selected native Valheim backup directory only after a graceful stop, then starts Valheim and verifies the ready marker. The dashboard can submit only a root-issued opaque backup ID, never a world path. A root-owned transaction preserves the pre-restore world and automatically restores it if the selected backup fails health checks. |
 
@@ -99,7 +99,7 @@ Every helper:
   stdout/stderr, stack traces, archive URLs, or checksums;
 - removes the consumed pending request file whether it succeeds or fails, so
   a stuck/invalid request cannot wedge the transport; and
-- never restarts Valheim outside of the two explicit request types above, and
+- never restarts Valheim outside of the explicit update, rollback, and restore actions, and
   never changes `valheim-restart.timer`'s 00:00/12:00 Asia/Shanghai cadence.
 
 ## World backup inventory and restore (B7)
@@ -125,8 +125,8 @@ pre-restore recovery point, promotes the staging directory, and waits for a
 new `Game server connected` marker. A failed health check restores the moved
 pre-restore world. A start-time recovery unit reverts any unconfirmed
 transaction after an interrupted restore before Valheim opens the world.
-It shares the fixed 15-minute restart cooldown with the restart-only and
-modpack-rollback helpers, so it cannot immediately follow either restart path.
+It shares the fixed 15-minute restart cooldown with the modpack-rollback
+helper, so it cannot immediately follow a rollback.
 
 The dashboard never accesses `/opt/valheim/data`; it reads
 `world-backups.json`, writes only the fixed restore-request file, and receives

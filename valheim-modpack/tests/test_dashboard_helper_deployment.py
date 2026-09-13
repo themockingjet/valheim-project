@@ -17,7 +17,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
     def test_shell_scripts_parse_and_deployer_has_safe_enable_gate(self) -> None:
         scripts = (
             "valheim-manifest-apply",
-            "valheim-restart-request",
+            "valheim-update-request",
             "valheim-rollback-request",
             "valheim-world-restore",
             "valheim-dashboard-actions",
@@ -36,7 +36,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         )
         for request in (
             "manifest-request.json",
-            "restart-request.json",
+            "update-request.json",
             "rollback-request.json",
             "world-restore-request.json",
         ):
@@ -48,7 +48,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         service_unit = (SYSTEMD / "valheim-dashboard-actions.service").read_text(
             encoding="utf-8"
         )
-        self.assertIn("TimeoutStartSec=15min", service_unit)
+        self.assertIn("TimeoutStartSec=40min", service_unit)
         self.assertIn(
             "ExecStart=/usr/local/libexec/valheim-dashboard-actions", service_unit
         )
@@ -120,9 +120,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             deployer,
         )
 
-    def test_restart_helpers_reject_invalid_cooldown_state(self) -> None:
-        for name in ("valheim-restart-request", "valheim-rollback-request"):
-            with self.subTest(name=name):
-                contents = (SCRIPTS / name).read_text(encoding="utf-8")
-                self.assertIn("cooldown_state_invalid", contents)
-                self.assertNotIn("except Exception", contents)
+    def test_rollback_helper_rejects_invalid_cooldown_state(self) -> None:
+        contents = (SCRIPTS / "valheim-rollback-request").read_text(encoding="utf-8")
+        self.assertIn("cooldown_state_invalid", contents)
+        self.assertNotIn("except Exception", contents)
