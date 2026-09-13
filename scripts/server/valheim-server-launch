@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly MODPACK_CURRENT=/opt/valheim/modpack/current
+
+if [[ -e "$MODPACK_CURRENT" ]]; then
+    readonly LOADER="$MODPACK_CURRENT/doorstop_libs/libdoorstop_x64.so"
+    readonly PRELOADER="$MODPACK_CURRENT/BepInEx/core/BepInEx.Preloader.dll"
+    if [[ ! -f "$LOADER" || ! -f "$PRELOADER" ]]; then
+        echo "valheim-modpack: active release is missing BepInEx loader files" >&2
+        exit 1
+    fi
+    export DOORSTOP_ENABLED=1
+    export DOORSTOP_TARGET_ASSEMBLY="$PRELOADER"
+    export LD_LIBRARY_PATH="$MODPACK_CURRENT/doorstop_libs:${LD_LIBRARY_PATH:-}"
+    export LD_PRELOAD="$LOADER${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
+exec /opt/valheim/server/start_valheim_server.sh

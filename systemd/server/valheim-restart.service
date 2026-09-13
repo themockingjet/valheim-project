@@ -1,0 +1,7 @@
+[Unit]
+Description=Maintain and restart Valheim Dedicated Server
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30min
+ExecStart=/usr/local/libexec/valheim-maintenance

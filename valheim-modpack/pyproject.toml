@@ -1,0 +1,5 @@
+[project]
+name = "valheim-modpack"
+version = "0.1.0"
+description = "Hexium-only Valheim modpack resolver and deployer"
+requires-python = ">=3.14"

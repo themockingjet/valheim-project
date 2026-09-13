@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish bounded Valheim native world-backup inventory
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/valheim-world-backup-inventory
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

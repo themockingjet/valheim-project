@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Test dashboard backend",
+      "type": "shell",
+      "command": "cd backend && uv run python -m unittest discover -s tests -v",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Run dashboard backend",
+      "type": "shell",
+      "command": "cd backend && uv run python main.py",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Run dashboard frontend",
+      "type": "shell",
+      "command": "cd frontend && npm run dev",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Build dashboard frontend",
+      "type": "shell",
+      "command": "cd frontend && npm run build",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Validate dashboard workspace",
+      "type": "shell",
+      "command": "cd backend && uv run python -m unittest discover -s tests -v && cd ../frontend && npm run lint && npm run build",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

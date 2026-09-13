@@ -1,0 +1,20 @@
+#!/bin/bash
+# Serialize fixed dashboard jobs so privileged server actions cannot overlap.
+set -Eeuo pipefail
+
+readonly PENDING_DIRECTORY=/var/lib/valheim-dashboard/pending
+readonly LOCK_FILE=/run/valheim-dashboard-actions.lock
+
+exec 9>"$LOCK_FILE"
+if ! /usr/bin/flock -n 9; then
+    printf 'valheim-dashboard-actions: skipped reason=already_running\n'
+    exit 0
+fi
+
+for helper in \
+    valheim-manifest-apply \
+    valheim-restart-request \
+    valheim-rollback-request \
+    valheim-world-restore; do
+    /usr/local/libexec/"$helper"
+done

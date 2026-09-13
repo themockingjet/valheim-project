@@ -1,0 +1,8 @@
+schema_version: 1
+packages:
+  - source: hexium
+    namespace: denikson
+    name: BepInExPack_Valheim
+    version: "5.4.2350"
+    channel: stable
+    role: server

@@ -1,0 +1,27 @@
+[Unit]
+Description=Valheim Dedicated Server
+Wants=network-online.target
+After=network-online.target valheim-world-restore-recovery.service
+Requires=valheim-world-restore-recovery.service
+
+[Service]
+Type=simple
+User=valheim
+Group=valheim
+WorkingDirectory=/opt/valheim/server
+ExecStart=/usr/local/libexec/valheim-server-launch
+KillSignal=SIGINT
+TimeoutStopSec=120
+Restart=on-failure
+RestartSec=10
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/valheim/data
+ReadWritePaths=/opt/valheim/logs
+ReadWritePaths=/opt/valheim/modpack
+
+[Install]
+WantedBy=multi-user.target

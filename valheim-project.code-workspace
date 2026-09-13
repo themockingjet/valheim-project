@@ -1,0 +1,20 @@
+{
+  "folders": [
+    {
+      "name": "Valheim Modpack",
+      "path": "./valheim-modpack"
+    },
+    {
+      "name": "Valheim Dashboard",
+      "path": "./valheim-dashboard"
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      "**/node_modules": true,
+      "**/dist": true
+    }
+  }
+}

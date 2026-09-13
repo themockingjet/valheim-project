@@ -1,0 +1,12 @@
+[Unit]
+Description=Detect pending dashboard action requests
+
+[Path]
+PathExists=/var/lib/valheim-dashboard/pending/manifest-request.json
+PathExists=/var/lib/valheim-dashboard/pending/restart-request.json
+PathExists=/var/lib/valheim-dashboard/pending/rollback-request.json
+PathExists=/var/lib/valheim-dashboard/pending/world-restore-request.json
+Unit=valheim-dashboard-actions.service
+
+[Install]
+WantedBy=multi-user.target

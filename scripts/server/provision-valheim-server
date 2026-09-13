@@ -1,0 +1,57 @@
+#!/bin/bash
+# Provision the host-owned Valheim server prerequisites. It intentionally does
+# not enable units: deploy the dashboard and modpack before the first start.
+set -Eeuo pipefail
+
+readonly PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+readonly SCRIPTS_ROOT="$PROJECT_ROOT/scripts/server"
+readonly SYSTEMD_SOURCE_ROOT="$PROJECT_ROOT/systemd/server"
+readonly SERVER_ROOT=/opt/valheim
+readonly SERVER_DIRECTORY="$SERVER_ROOT/server"
+readonly DATA_DIRECTORY="$SERVER_ROOT/data"
+readonly LOG_DIRECTORY="$SERVER_ROOT/logs"
+readonly SYSTEMD_DIRECTORY=/etc/systemd/system
+readonly STEAMCMD=/usr/games/steamcmd
+
+fail() {
+    printf 'provision-valheim-server: %s\n' "$1" >&2
+    exit 1
+}
+
+if [[ $EUID -ne 0 ]]; then
+    fail 'must run as root'
+fi
+if [[ ! -x "$STEAMCMD" ]]; then
+    fail "missing SteamCMD at $STEAMCMD; install the Ubuntu SteamCMD prerequisites first"
+fi
+if /usr/bin/systemctl is-active --quiet valheim.service; then
+    fail 'valheim.service is active; stop the server and back up world data before provisioning'
+fi
+
+if ! /usr/bin/id -u valheim >/dev/null 2>&1; then
+    /usr/sbin/useradd --system --user-group --home-dir "$SERVER_ROOT" \
+        --shell /usr/sbin/nologin valheim
+fi
+
+/usr/bin/install -d -o valheim -g valheim -m 0750 \
+    "$SERVER_DIRECTORY" "$DATA_DIRECTORY" "$LOG_DIRECTORY"
+
+/usr/bin/install -o root -g root -m 0755 \
+    "$SCRIPTS_ROOT/valheim-server-launch" /usr/local/libexec/valheim-server-launch
+/usr/bin/install -o root -g root -m 0644 \
+    "$SYSTEMD_SOURCE_ROOT/valheim.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-restart.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-restart.timer" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-world-restore-recovery.service" \
+    "$SYSTEMD_DIRECTORY/"
+
+/usr/sbin/runuser -u valheim -- "$STEAMCMD" \
+    +force_install_dir "$SERVER_DIRECTORY" \
+    +login anonymous \
+    +app_update 896660 validate \
+    +quit
+/usr/bin/systemctl daemon-reload
+
+printf '%s\n' \
+    'provision-valheim-server: server files and inactive units are installed' \
+    'Deploy the dashboard, then the modpack, before enabling valheim.service and valheim-restart.timer.'

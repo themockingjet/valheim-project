@@ -1,0 +1,126 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+readonly SOURCE_ROOT="$PROJECT_ROOT/valheim-dashboard"
+readonly DEPLOY_ROOT=/opt/valheim-dashboard
+readonly RELEASES_DIRECTORY="$DEPLOY_ROOT/releases"
+readonly CURRENT_LINK="$DEPLOY_ROOT/current"
+readonly PREVIOUS_LINK="$DEPLOY_ROOT/previous"
+readonly UNIT_SOURCE="$PROJECT_ROOT/systemd/dashboard/valheim-dashboard.service"
+readonly UNIT_DESTINATION=/etc/systemd/system/valheim-dashboard.service
+readonly STATE_ROOT=/var/lib/valheim-dashboard
+readonly SOURCE_OWNER=$(/usr/bin/stat -c '%U' "$SOURCE_ROOT")
+readonly SOURCE_HOME=$(/usr/bin/getent passwd "$SOURCE_OWNER" | /usr/bin/cut -d: -f6)
+readonly SOURCE_UV="$SOURCE_HOME/.local/bin/uv"
+
+require_clean_revision() {
+    git -C "$SOURCE_ROOT" rev-parse --verify HEAD >/dev/null
+    git -C "$SOURCE_ROOT" diff --quiet
+    git -C "$SOURCE_ROOT" diff --cached --quiet
+    [[ -z $(git -C "$SOURCE_ROOT" status --porcelain --untracked-files=all) ]]
+}
+
+atomic_link() {
+    local link_path=$1 target=$2 temporary_link
+    temporary_link="${link_path}.new.$$"
+    rm -f -- "$temporary_link"
+    ln -s -- "$target" "$temporary_link"
+    mv -Tf -- "$temporary_link" "$link_path"
+}
+
+release_previous() {
+    if [[ -L "$CURRENT_LINK" ]]; then
+        atomic_link "$PREVIOUS_LINK" "$(readlink -f "$CURRENT_LINK")"
+    fi
+}
+
+run_as_source_owner() {
+    /usr/sbin/runuser -u "$SOURCE_OWNER" -- "$@"
+}
+
+restore_previous_release() {
+    if [[ -n "$previous_target" ]]; then
+        atomic_link "$CURRENT_LINK" "$previous_target"
+        systemctl restart valheim-dashboard.service || true
+    else
+        rm -f -- "$CURRENT_LINK"
+        systemctl disable --now valheim-dashboard.service || true
+    fi
+}
+
+wait_for_dashboard_health() {
+    local deadline=$((SECONDS + 15))
+    while (( SECONDS < deadline )); do
+        if curl --fail --silent --show-error --max-time 2 \
+            http://127.0.0.1:8080/api/healthz >/dev/null; then
+            return 0
+        fi
+        if ! systemctl is-active --quiet valheim-dashboard.service; then
+            return 1
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+require_clean_revision
+readonly RELEASE_ID=$(git -C "$SOURCE_ROOT" rev-parse --verify HEAD)
+readonly RELEASE_DIRECTORY="$RELEASES_DIRECTORY/$RELEASE_ID"
+
+if [[ ! -x "$SOURCE_UV" ]]; then
+    printf 'valheim-dashboard-deploy: missing uv at %s\n' "$SOURCE_UV" >&2
+    exit 1
+fi
+
+(
+    cd "$SOURCE_ROOT/backend"
+    run_as_source_owner "$SOURCE_UV" sync --locked
+    run_as_source_owner "$SOURCE_UV" run python -m unittest discover -s tests -v
+)
+(
+    cd "$SOURCE_ROOT/frontend"
+    run_as_source_owner /usr/bin/npm ci
+    run_as_source_owner /usr/bin/npm run lint
+    run_as_source_owner /usr/bin/npm run build
+)
+
+install -d -o root -g root -m 0755 "$RELEASES_DIRECTORY"
+if [[ ! -d "$RELEASE_DIRECTORY" ]]; then
+    readonly STAGING_DIRECTORY=$(mktemp -d "$RELEASES_DIRECTORY/.${RELEASE_ID}.XXXXXX")
+    chmod 0755 "$STAGING_DIRECTORY"
+    install -d -o root -g root -m 0755 "$STAGING_DIRECTORY/backend"
+    install -d -o root -g root -m 0755 "$STAGING_DIRECTORY/frontend"
+    install -o root -g root -m 0644 "$SOURCE_ROOT/backend/main.py" "$STAGING_DIRECTORY/backend/main.py"
+    cp -a --no-preserve=ownership "$SOURCE_ROOT/backend/src" "$STAGING_DIRECTORY/backend/src"
+    cp -a --no-preserve=ownership "$SOURCE_ROOT/frontend/dist" "$STAGING_DIRECTORY/frontend/dist"
+    chmod -R go-w "$STAGING_DIRECTORY"
+    mv -T -- "$STAGING_DIRECTORY" "$RELEASE_DIRECTORY"
+fi
+
+if ! id -u valheim-ui >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir /nonexistent --shell /usr/sbin/nologin valheim-ui
+fi
+install -d -o root -g valheim-ui -m 0750 "$STATE_ROOT"
+install -d -o root -g valheim-ui -m 0750 "$STATE_ROOT/exports"
+install -d -o valheim-ui -g valheim-ui -m 0700 "$STATE_ROOT/pending" "$STATE_ROOT/audit"
+# "state" holds bounded result files written only by the root-owned
+# manifest/restart/rollback helpers (deployed separately from
+# valheim-modpack); the dashboard user may only read it.
+install -d -o root -g valheim-ui -m 0750 "$STATE_ROOT/state"
+install -o root -g root -m 0644 "$UNIT_SOURCE" "$UNIT_DESTINATION"
+systemctl daemon-reload
+
+previous_target=''
+if [[ -L "$CURRENT_LINK" ]]; then
+    previous_target=$(readlink -f "$CURRENT_LINK")
+fi
+release_previous
+atomic_link "$CURRENT_LINK" "$RELEASE_DIRECTORY"
+
+if ! systemctl enable valheim-dashboard.service ||
+    ! systemctl restart valheim-dashboard.service ||
+    ! wait_for_dashboard_health; then
+    restore_previous_release
+    exit 1
+fi

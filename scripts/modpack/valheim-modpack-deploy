@@ -1,0 +1,102 @@
+#!/bin/bash
+# Install the reviewed modpack sources and optional dashboard action helpers.
+# This never starts, stops, or restarts valheim.service.
+set -Eeuo pipefail
+
+readonly PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+readonly SOURCE_ROOT="$PROJECT_ROOT/valheim-modpack"
+readonly SCRIPTS_ROOT="$PROJECT_ROOT/scripts/modpack"
+readonly SYSTEMD_SOURCE_ROOT="$PROJECT_ROOT/systemd/modpack"
+readonly DEFAULT_MANIFEST="$PROJECT_ROOT/config/modpack/manifest.yaml"
+readonly MODPACK_ROOT=/opt/valheim/modpack
+readonly LIBRARY_DIRECTORY="$MODPACK_ROOT/lib"
+readonly SYSTEMD_DIRECTORY=/etc/systemd/system
+readonly DASHBOARD_STATE=/var/lib/valheim-dashboard
+readonly ENABLE_DASHBOARD_ACTIONS=false
+
+fail() {
+    printf 'valheim-modpack-deploy: %s\n' "$1" >&2
+    exit 1
+}
+
+usage() {
+    printf '%s\n' \
+        'Usage: valheim-modpack-deploy [--enable-dashboard-actions]' \
+        '' \
+        'Installs modpack code, root helpers, and systemd units.' \
+        '--enable-dashboard-actions additionally enables the dashboard request watchers.' \
+        'The command refuses to enable watchers while any request is pending.'
+}
+
+enable_dashboard_actions=$ENABLE_DASHBOARD_ACTIONS
+case "${1:-}" in
+    '') ;;
+    --enable-dashboard-actions) enable_dashboard_actions=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+esac
+
+if [[ $# -gt 1 ]]; then
+    usage >&2
+    exit 2
+fi
+if [[ $EUID -ne 0 ]]; then
+    printf 'valheim-modpack-deploy: must run as root\n' >&2
+    exit 1
+fi
+if ! /usr/bin/id -u valheim >/dev/null || ! /usr/bin/id -u valheim-ui >/dev/null; then
+    fail 'valheim and valheim-ui accounts must already exist'
+fi
+if [[ ! -d "$DASHBOARD_STATE/pending" || ! -d "$DASHBOARD_STATE/exports" ||
+    ! -d "$DASHBOARD_STATE/state" ]]; then
+    fail 'dashboard state directories are missing; deploy the dashboard first'
+fi
+if [[ "$enable_dashboard_actions" == true ]] &&
+    /usr/bin/find "$DASHBOARD_STATE/pending" -maxdepth 1 -type f -name '*-request.json' -print -quit |
+        /usr/bin/grep -q .; then
+    printf 'valheim-modpack-deploy: refusing to enable watchers while a request is pending\n' >&2
+    exit 1
+fi
+
+install -d -o root -g valheim -m 0770 "$MODPACK_ROOT"
+install -d -o root -g valheim -m 0750 "$MODPACK_ROOT/bin" "$LIBRARY_DIRECTORY"
+install -d -o valheim -g valheim -m 0750 "$MODPACK_ROOT/config-overrides"
+install -d -o root -g root -m 0755 /usr/local/libexec "$SYSTEMD_DIRECTORY"
+install -o root -g root -m 0644 "$SOURCE_ROOT/main.py" "$LIBRARY_DIRECTORY/main.py"
+install -d -o root -g root -m 0755 "$LIBRARY_DIRECTORY/src"
+install -o root -g root -m 0644 "$SOURCE_ROOT/src/"*.py "$LIBRARY_DIRECTORY/src/"
+if [[ ! -e "$MODPACK_ROOT/manifest.yaml" ]]; then
+    install -o root -g valheim -m 0640 "$DEFAULT_MANIFEST" "$MODPACK_ROOT/manifest.yaml"
+fi
+install -o root -g valheim -m 0750 "$SCRIPTS_ROOT/valheim-modpack" \
+    "$MODPACK_ROOT/bin/valheim-modpack"
+install -o root -g root -m 0755 \
+    "$SCRIPTS_ROOT/valheim-maintenance" \
+    "$SCRIPTS_ROOT/valheim-manifest-apply" \
+    "$SCRIPTS_ROOT/valheim-restart-request" \
+    "$SCRIPTS_ROOT/valheim-rollback-request" \
+    "$SCRIPTS_ROOT/valheim-world-backup-inventory" \
+    "$SCRIPTS_ROOT/valheim-world-restore" \
+    "$SCRIPTS_ROOT/valheim-world-restore-recover" \
+    "$SCRIPTS_ROOT/valheim-dashboard-actions" \
+    /usr/local/libexec/
+install -o root -g root -m 0644 \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.path" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-world-backup-inventory.path" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-world-backup-inventory.service" \
+    "$SYSTEMD_DIRECTORY/"
+install -d -o root -g valheim-ui -m 0750 \
+    "$DASHBOARD_STATE/exports" "$DASHBOARD_STATE/state"
+
+/usr/bin/systemctl daemon-reload
+/usr/bin/systemctl start valheim-dashboard-world-backup-inventory.service
+/usr/bin/systemctl enable --now valheim-dashboard-world-backup-inventory.path
+/usr/bin/python3 "$LIBRARY_DIRECTORY/status_snapshot.py"
+
+if [[ "$enable_dashboard_actions" == true ]]; then
+    /usr/bin/systemctl enable --now \
+        valheim-dashboard-actions.path
+fi
+
+printf 'valheim-modpack-deploy: completed dashboard_actions=%s\n' "$enable_dashboard_actions"

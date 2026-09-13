@@ -1,0 +1,9 @@
+[project]
+name = "valheim-dashboard"
+version = "0.0.0"
+description = "Localhost-only Valheim dashboard backend"
+requires-python = ">=3.14,<3.15"
+
+[tool.uv]
+python-preference = "system"
+package = false

@@ -1,0 +1,10 @@
+[Unit]
+Description=Consume pending dashboard action requests
+
+[Service]
+Type=oneshot
+TimeoutStartSec=15min
+ExecStart=/usr/local/libexec/valheim-dashboard-actions
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true

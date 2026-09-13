@@ -1,0 +1,11 @@
+[Unit]
+Description=Maintain and restart Valheim at 00:00 and 12:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1s
+Unit=valheim-restart.service
+
+[Install]
+WantedBy=timers.target

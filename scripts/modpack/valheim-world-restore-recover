@@ -1,0 +1,12 @@
+#!/bin/sh
+# Runs before valheim.service starts. A runtime marker exists only while the
+# restore helper is deliberately starting the restored world for its health
+# check; after a crash the marker is absent and an unconfirmed restore rolls
+# back before Valheim can open it.
+set -eu
+
+if [ -e /run/valheim-world-restore-starting ]; then
+    exit 0
+fi
+
+exec /usr/bin/python3 /opt/valheim/modpack/lib/world_backups.py recover

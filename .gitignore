@@ -1,0 +1,22 @@
+# Generated Python artifacts
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.coverage
+**/.venv/
+**/*.egg-info/
+
+# Generated frontend artifacts
+**/node_modules/
+**/dist/
+**/build/
+
+# Local dashboard configuration. Templates remain committed.
+/valheim-dashboard/backend/.env
+/valheim-dashboard/backend/.env.*
+/valheim-dashboard/frontend/.env
+/valheim-dashboard/frontend/.env.*
+
+# OS and editor artifacts
+.DS_Store
+*.swp

@@ -1,0 +1,203 @@
+#!/bin/bash
+# Root-owned fixed helper for confirmed dashboard world restores. The request
+# contains only a root-issued opaque backup ID: never a caller-controlled path.
+set -Eeuo pipefail
+
+readonly WORLD_TOOL=/opt/valheim/modpack/lib/world_backups.py
+readonly PENDING_REQUEST=/var/lib/valheim-dashboard/pending/world-restore-request.json
+readonly STATE_DIRECTORY=/var/lib/valheim-dashboard/state
+readonly RESULT_FILE="$STATE_DIRECTORY/world-restore-result.json"
+readonly COOLDOWN_FILE="$STATE_DIRECTORY/restart-cooldown.json"
+readonly COOLDOWN_SECONDS=900
+readonly OPERATION_LOCK=/opt/valheim/modpack/maintenance.lock
+readonly RESTORE_MARKER=/run/valheim-world-restore-starting
+readonly VALHEIM_LOG=/opt/valheim/logs/valheim.log
+readonly BEPINEX_LOG=/opt/valheim/modpack/current/BepInEx/LogOutput.log
+readonly READY_MARKER='Game server connected'
+readonly HEALTH_TIMEOUT_SECONDS=180
+
+log() {
+    printf 'valheim-world-restore event=%s %s\n' "$1" "${2:-}"
+}
+
+log() {
+    printf 'valheim-world-restore event=%s %s\n' "$1" "${2:-}"
+}
+
+write_result() {
+    local outcome=$1 message=$2
+    install -d -o root -g valheim-ui -m 0750 "$STATE_DIRECTORY"
+    local temporary
+    temporary=$(mktemp "$STATE_DIRECTORY/.world-restore-result.XXXXXX")
+    printf '{"outcome":"%s","message":"%s"}\n' "$outcome" "$message" >"$temporary"
+    chmod 0640 "$temporary"
+    chown root:valheim-ui "$temporary"
+    mv -Tf -- "$temporary" "$RESULT_FILE"
+}
+
+seconds_since_last_restart() {
+    [[ -f "$COOLDOWN_FILE" ]] || { echo 999999; return 0; }
+    /usr/bin/python3 - "$COOLDOWN_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "rb") as source:
+    value = json.load(source)["last_triggered_epoch"]
+if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+    raise SystemExit(1)
+print(max(0, __import__("time").time_ns() // 1_000_000_000 - value))
+PY
+}
+
+record_cooldown() {
+    install -d -o root -g valheim-ui -m 0750 "$STATE_DIRECTORY"
+    local temporary
+    temporary=$(mktemp "$STATE_DIRECTORY/.restart-cooldown.XXXXXX")
+    printf '{"last_triggered_epoch":%s}\n' "$(/usr/bin/date +%s)" >"$temporary"
+    chmod 0640 "$temporary"
+    chown root:valheim-ui "$temporary"
+    mv -Tf -- "$temporary" "$COOLDOWN_FILE"
+}
+
+request_backup_id() {
+    /usr/bin/python3 - "$PENDING_REQUEST" <<'PY'
+import json
+import re
+import sys
+
+try:
+    with open(sys.argv[1], "rb") as source:
+        request = json.load(source)
+    valid = (
+        isinstance(request, dict)
+        and set(request) == {"schema_version", "requested_at", "backup_id", "reason"}
+        and request["schema_version"] == 1
+        and isinstance(request["requested_at"], str)
+        and len(request["requested_at"]) <= 40
+        and isinstance(request["backup_id"], str)
+        and re.fullmatch(r"[A-Za-z0-9_-]{22,64}", request["backup_id"])
+        and isinstance(request["reason"], str)
+        and len(request["reason"]) <= 200
+    )
+except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    valid = False
+if not valid:
+    raise SystemExit(1)
+print(request["backup_id"])
+PY
+}
+
+log_snapshot() {
+    /usr/bin/stat -c '%d:%i:%s' "$1" 2>/dev/null || printf 'missing:0'
+}
+
+has_new_ready_marker() {
+    local path=$1 initial=$2 current initial_identity initial_size current_identity current_size start
+    initial_identity=${initial%:*}
+    initial_size=${initial##*:}
+    current=$(log_snapshot "$path")
+    [[ "$current" != 'missing:0' ]] || return 1
+    current_identity=${current%:*}
+    current_size=${current##*:}
+    start=$((initial_size + 1))
+    if [[ "$current_identity" != "$initial_identity" ]] || (( current_size < initial_size )); then
+        start=1
+    fi
+    /usr/bin/grep -Fq "$READY_MARKER" < <(/usr/bin/tail -c "+$start" "$path")
+}
+
+start_and_wait_for_health() {
+    local initial_server initial_bepinex deadline
+    initial_server=$(log_snapshot "$VALHEIM_LOG")
+    initial_bepinex=$(log_snapshot "$BEPINEX_LOG")
+    : >"$RESTORE_MARKER"
+    /usr/bin/systemctl start valheim.service
+    deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
+    while (( SECONDS < deadline )); do
+        if ! /usr/bin/systemctl is-active --quiet valheim.service; then
+            rm -f -- "$RESTORE_MARKER"
+            return 1
+        fi
+        if has_new_ready_marker "$VALHEIM_LOG" "$initial_server" ||
+            has_new_ready_marker "$BEPINEX_LOG" "$initial_bepinex"; then
+            rm -f -- "$RESTORE_MARKER"
+            return 0
+        fi
+        /usr/bin/sleep 2
+    done
+    rm -f -- "$RESTORE_MARKER"
+    return 1
+}
+
+consume() {
+    rm -f -- "$PENDING_REQUEST"
+}
+
+trap 'rm -f -- "$RESTORE_MARKER"' EXIT
+
+if [[ ! -f "$PENDING_REQUEST" ]]; then
+    log skipped 'reason=no_pending_request'
+    exit 0
+fi
+if ! backup_id=$(request_backup_id); then
+    log rejected 'reason=invalid_request_schema'
+    write_result rejected 'The restore request failed independent schema validation.'
+    consume
+    exit 0
+fi
+if ! elapsed=$(seconds_since_last_restart); then
+    log rejected 'reason=cooldown_state_invalid'
+    write_result rejected 'Restart cooldown state is invalid; no restore was applied.'
+    consume
+    exit 0
+fi
+if (( elapsed < COOLDOWN_SECONDS )); then
+    log rejected "reason=cooldown_active elapsed=${elapsed}s"
+    write_result rejected "The server was restarted ${elapsed}s ago; try again later."
+    consume
+    exit 0
+fi
+
+exec 9>"$OPERATION_LOCK"
+if ! /usr/bin/flock -n 9; then
+    log rejected 'reason=maintenance_operation_running'
+    write_result rejected 'A maintenance operation is currently running; try again later.'
+    consume
+    exit 0
+fi
+
+record_cooldown
+if ! /usr/bin/systemctl stop valheim.service; then
+    log failed 'reason=unable_to_stop_service'
+    write_result failed 'Valheim could not be stopped safely; no restore was applied.'
+    consume
+    exit 0
+fi
+
+if ! prepared=$(/usr/bin/python3 "$WORLD_TOOL" prepare --backup-id "$backup_id"); then
+    log rejected 'reason=backup_unavailable_or_invalid'
+    /usr/bin/systemctl start valheim.service
+    write_result rejected 'The selected backup is no longer available or is structurally invalid.'
+    consume
+    exit 0
+fi
+transaction_id=$(printf '%s' "$prepared" | /usr/bin/python3 -c \
+    'import json,sys; print(json.load(sys.stdin)["transaction_id"])')
+
+if start_and_wait_for_health; then
+    /usr/bin/python3 "$WORLD_TOOL" complete --transaction-id "$transaction_id"
+    log succeeded
+    write_result success 'Restored the selected native backup and confirmed the server ready marker.'
+else
+    log health_check_failed
+    /usr/bin/systemctl stop valheim.service
+    if /usr/bin/python3 "$WORLD_TOOL" rollback --transaction-id "$transaction_id" &&
+        start_and_wait_for_health; then
+        log recovered
+        write_result failed_recovered 'The selected backup did not start; the prior active world was restored.'
+    else
+        log recovery_failed
+        write_result failed 'The restored world failed its health check and automatic recovery needs operator attention.'
+    fi
+fi
+consume

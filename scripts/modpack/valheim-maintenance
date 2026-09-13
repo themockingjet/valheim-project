@@ -1,0 +1,136 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly MODPACK_ROOT=/opt/valheim/modpack
+readonly MODPACK_CLI="$MODPACK_ROOT/bin/valheim-modpack"
+readonly STATUS_EXPORTER="$MODPACK_ROOT/lib/status_snapshot.py"
+readonly VALHEIM_LOG=/opt/valheim/logs/valheim.log
+readonly BEPINEX_LOG="$MODPACK_ROOT/current/BepInEx/LogOutput.log"
+readonly READY_MARKER='Game server connected'
+readonly HEALTH_TIMEOUT_SECONDS=180
+
+# systemd does not provide HOME; the Debian SteamCMD wrapper requires it.
+export HOME=/root
+
+log() {
+    printf 'valheim-maintenance event=%s %s\n' "$1" "${2:-}"
+}
+
+current_release=''
+deployment_activated=0
+
+publish_status() {
+    local outcome=$1
+    local failure_reason=${2:-}
+    local -a arguments=(--maintenance-outcome "$outcome")
+    if [[ -n "$failure_reason" ]]; then
+        arguments+=(--failure-reason "$failure_reason")
+    fi
+    if [[ "$outcome" == 'rolled_back' ]]; then
+        arguments+=(--rollback-performed)
+    fi
+    /usr/bin/python3 "$STATUS_EXPORTER" "${arguments[@]}" ||
+        log status_publish_failed "outcome=$outcome"
+}
+
+recover() {
+    local exit_code=$?
+    local failure_reason="maintenance exited with code $exit_code"
+    local rollback_performed=0
+    trap - EXIT
+
+    if [[ $exit_code -ne 0 ]]; then
+        log maintenance_failed "exit_code=$exit_code"
+        publish_status failed "$failure_reason"
+        /usr/bin/systemctl stop valheim.service || log stop_failed
+        if [[ $deployment_activated -eq 1 ]]; then
+            if [[ -n "$current_release" ]]; then
+                log rollback_started "target=$current_release"
+                if /usr/sbin/runuser -u valheim -- "$MODPACK_CLI" rollback --allow-active; then
+                    rollback_performed=1
+                    log rollback_completed
+                else
+                    log rollback_failed
+                fi
+            else
+                rm -f "$MODPACK_ROOT/current" "$MODPACK_ROOT/previous"
+                rollback_performed=1
+                log rollback_completed "target=vanilla"
+            fi
+        fi
+        if [[ $rollback_performed -eq 1 ]]; then
+            publish_status rolled_back "$failure_reason"
+        fi
+        if ! /usr/bin/systemctl is-active --quiet valheim.service; then
+            /usr/bin/systemctl start valheim.service || log recovery_start_failed
+        fi
+    fi
+    exit "$exit_code"
+}
+
+log_snapshot() {
+    /usr/bin/stat -c '%d:%i:%s' "$1" 2>/dev/null || printf 'missing:0'
+}
+
+log_has_new_ready_marker() {
+    local log_path=$1 initial_snapshot=$2 initial_identity initial_size current_snapshot
+    local current_identity current_size start_byte
+
+    initial_identity=${initial_snapshot%:*}
+    initial_size=${initial_snapshot##*:}
+    current_snapshot=$(log_snapshot "$log_path")
+    [[ "$current_snapshot" != 'missing:0' ]] || return 1
+    current_identity=${current_snapshot%:*}
+    current_size=${current_snapshot##*:}
+    start_byte=$((initial_size + 1))
+    if [[ "$current_identity" != "$initial_identity" ]] || (( current_size < initial_size )); then
+        start_byte=1
+    fi
+    /usr/bin/grep -Fq "$READY_MARKER" < <(
+        /usr/bin/tail -c "+$start_byte" "$log_path"
+    )
+}
+
+wait_for_server_health() {
+    local initial_valheim_log initial_bepinex_log deadline
+    initial_valheim_log=$(log_snapshot "$VALHEIM_LOG")
+    initial_bepinex_log=$(log_snapshot "$BEPINEX_LOG")
+    deadline=$((SECONDS + HEALTH_TIMEOUT_SECONDS))
+
+    /usr/bin/systemctl start valheim.service
+    while (( SECONDS < deadline )); do
+        if ! /usr/bin/systemctl is-active --quiet valheim.service; then
+            log health_check_failed "reason=service_inactive"
+            return 1
+        fi
+        if log_has_new_ready_marker "$VALHEIM_LOG" "$initial_valheim_log" ||
+            log_has_new_ready_marker "$BEPINEX_LOG" "$initial_bepinex_log"; then
+            log health_check_succeeded "marker=$READY_MARKER"
+            return 0
+        fi
+        /usr/bin/sleep 2
+    done
+    log health_check_failed "reason=timeout timeout_seconds=$HEALTH_TIMEOUT_SECONDS"
+    return 1
+}
+
+exec 9>"$MODPACK_ROOT/maintenance.lock"
+/usr/bin/flock -n 9 || {
+    log maintenance_skipped "reason=operation_locked"
+    exit 1
+}
+
+if [[ -L "$MODPACK_ROOT/current" ]]; then
+    current_release=$(/usr/bin/readlink -f "$MODPACK_ROOT/current")
+fi
+
+trap recover EXIT
+publish_status running
+log maintenance_started
+/usr/bin/systemctl stop valheim.service
+/usr/games/steamcmd +force_install_dir /opt/valheim/server +login anonymous +app_update 896660 validate +quit
+/usr/sbin/runuser -u valheim -- "$MODPACK_CLI" maintain
+deployment_activated=1
+wait_for_server_health
+publish_status success
+log maintenance_succeeded

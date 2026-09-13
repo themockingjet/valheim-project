@@ -1,0 +1,9 @@
+[Unit]
+Description=Detect Valheim native world-backup changes
+
+[Path]
+PathChanged=/opt/valheim/data/worlds_local
+Unit=valheim-dashboard-world-backup-inventory.service
+
+[Install]
+WantedBy=multi-user.target

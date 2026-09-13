@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+# Created by `uv sync`; keep the reproducible uv.lock file instead.
+.venv/
+dist/
+build/
+*.egg-info/
+frontend/node_modules/
+frontend/dist/
+
+# Local dashboard configuration.
+/backend/.env
+/backend/.env.*
+/frontend/.env
+/frontend/.env.*

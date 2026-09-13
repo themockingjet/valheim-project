@@ -1,0 +1,79 @@
+#!/bin/bash
+# Root-owned helper: consumes a dashboard-originated pending manifest request
+# and publishes it as the reviewed manifest for the NEXT scheduled
+# maintenance run. It never stops, starts, or restarts valheim.service, and
+# never activates a release. Triggered by valheim-dashboard-actions.path
+# whenever the dashboard atomically creates a fixed pending request file.
+set -Eeuo pipefail
+
+readonly MODPACK_ROOT=/opt/valheim/modpack
+readonly MODPACK_CLI="$MODPACK_ROOT/bin/valheim-modpack"
+readonly PENDING_DIRECTORY=/var/lib/valheim-dashboard/pending
+readonly STATE_DIRECTORY=/var/lib/valheim-dashboard/state
+readonly PENDING_REQUEST="$PENDING_DIRECTORY/manifest-request.json"
+readonly RESULT_FILE="$STATE_DIRECTORY/manifest-result.json"
+readonly STAGED_REQUEST="$MODPACK_ROOT/pending-manifest-request.json"
+
+log() {
+    printf 'valheim-manifest-apply event=%s %s\n' "$1" "${2:-}"
+}
+
+write_result() {
+    local outcome=$1 message=${2:-} extra=${3:-}
+    install -d -o root -g valheim-ui -m 0750 "$STATE_DIRECTORY"
+    local temporary
+    temporary=$(mktemp "$STATE_DIRECTORY/.manifest-result.XXXXXX")
+    if [[ -n "$extra" ]]; then
+        printf '{"outcome":"%s","message":"%s",%s}\n' "$outcome" "$message" "$extra" >"$temporary"
+    else
+        printf '{"outcome":"%s","message":"%s"}\n' "$outcome" "$message" >"$temporary"
+    fi
+    chmod 0640 "$temporary"
+    chown root:valheim-ui "$temporary"
+    mv -Tf -- "$temporary" "$RESULT_FILE"
+}
+
+consume_pending_request() {
+    rm -f -- "$PENDING_REQUEST"
+}
+
+# The path unit may fire once for the create and once more for a benign
+# rewrite race; treat a missing file as nothing-to-do rather than an error.
+if [[ ! -f "$PENDING_REQUEST" ]]; then
+    log skipped 'reason=no_pending_request'
+    exit 0
+fi
+trap 'rm -f -- "$STAGED_REQUEST"; consume_pending_request' EXIT
+
+# Concurrency is guarded by the CLI's own update.lock (acquired inside
+# apply-pending-manifest); this wrapper must not take a second, separate
+# lock on the same file, or the CLI's internal non-blocking acquire would
+# always fail.
+
+# Copy into a modpack-owned staging file the unprivileged `valheim` account
+# can read, without ever granting it access to the dashboard's own
+# directories.
+install -o root -g valheim -m 0640 "$PENDING_REQUEST" "$STAGED_REQUEST"
+
+if output=$(/usr/sbin/runuser -u valheim -- "$MODPACK_CLI" apply-pending-manifest \
+    --request "$STAGED_REQUEST" 2>&1); then
+    if package_count=$(printf '%s' "$output" | /usr/bin/python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin).get("package_count")
+if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 50:
+    raise SystemExit(1)
+print(value)
+' 2>/dev/null); then
+        log succeeded "package_count=$package_count"
+        write_result success 'Manifest queued for the next scheduled maintenance run.' \
+            "\"package_count\":$package_count"
+    else
+        log failed 'reason=invalid_cli_result'
+        write_result failed 'The manifest request completed without a valid result summary.'
+    fi
+else
+    log failed 'reason=validation_or_resolution_failed'
+    write_result rejected 'The manifest request failed validation or could not be resolved.'
+fi

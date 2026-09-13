@@ -1,0 +1,28 @@
+[Unit]
+Description=Valheim Dashboard
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=valheim-ui
+Group=valheim-ui
+WorkingDirectory=/opt/valheim-dashboard/current/backend
+Environment=PYTHONUNBUFFERED=1
+Environment=VALHEIM_DASHBOARD_STATIC_DIR=/opt/valheim-dashboard/current/frontend/dist
+ExecStart=/usr/bin/python3 main.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+RuntimeDirectory=valheim-dashboard
+RuntimeDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/valheim-dashboard/pending
+ReadWritePaths=/var/lib/valheim-dashboard/audit
+ReadWritePaths=/run/valheim-dashboard
+
+[Install]
+WantedBy=multi-user.target

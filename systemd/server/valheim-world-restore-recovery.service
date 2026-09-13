@@ -1,0 +1,9 @@
+[Unit]
+Description=Recover an unconfirmed Valheim world restore before server startup
+Before=valheim.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/valheim-world-restore-recover
+PrivateTmp=true
+ProtectHome=true
