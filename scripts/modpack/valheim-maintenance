@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 readonly MODPACK_ROOT=/opt/valheim/modpack
 readonly MODPACK_CLI="$MODPACK_ROOT/bin/valheim-modpack"
-readonly STATUS_EXPORTER="$MODPACK_ROOT/lib/status_snapshot.py"
+readonly MODPACK_LIBRARY="$MODPACK_ROOT/lib"
 readonly VALHEIM_LOG=/opt/valheim/logs/valheim.log
 readonly BEPINEX_LOG="$MODPACK_ROOT/current/BepInEx/LogOutput.log"
 readonly READY_MARKER='Game server connected'
@@ -29,7 +29,10 @@ publish_status() {
     if [[ "$outcome" == 'rolled_back' ]]; then
         arguments+=(--rollback-performed)
     fi
-    /usr/bin/python3 "$STATUS_EXPORTER" "${arguments[@]}" ||
+    (
+        cd -- "$MODPACK_LIBRARY"
+        /usr/bin/python3 -m src.status_snapshot "${arguments[@]}"
+    ) ||
         log status_publish_failed "outcome=$outcome"
 }
 

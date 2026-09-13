@@ -62,7 +62,11 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         )
         deployer = (SCRIPTS / "valheim-modpack-deploy").read_text(encoding="utf-8")
         self.assertIn(
-            "ExecStart=/usr/bin/python3 /opt/valheim/modpack/lib/status_snapshot.py",
+            "WorkingDirectory=/opt/valheim/modpack/lib",
+            service_unit,
+        )
+        self.assertIn(
+            "ExecStart=/usr/bin/python3 -m src.status_snapshot",
             service_unit,
         )
         self.assertIn("ProtectSystem=strict", service_unit)
@@ -71,6 +75,9 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         self.assertIn("Persistent=true", timer_unit)
         self.assertIn("valheim-dashboard-status.timer", deployer)
         self.assertIn("systemctl start valheim-dashboard-status.service", deployer)
+        maintenance = (SCRIPTS / "valheim-maintenance").read_text(encoding="utf-8")
+        self.assertIn('cd -- "$MODPACK_LIBRARY"', maintenance)
+        self.assertIn("/usr/bin/python3 -m src.status_snapshot", maintenance)
 
     def test_canonical_server_units_replace_modpack_drop_ins(self) -> None:
         server_unit = (SERVER_SYSTEMD / "valheim.service").read_text(encoding="utf-8")

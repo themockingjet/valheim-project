@@ -3,7 +3,8 @@ Description=Publish Valheim dashboard status snapshot
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /opt/valheim/modpack/lib/status_snapshot.py
+WorkingDirectory=/opt/valheim/modpack/lib
+ExecStart=/usr/bin/python3 -m src.status_snapshot
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true
