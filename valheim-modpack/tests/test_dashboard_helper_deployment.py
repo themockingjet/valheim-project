@@ -87,6 +87,11 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         self.assertIn(
             "Requires=valheim-world-restore-recovery.service", server_unit
         )
+        self.assertIn("RuntimeDirectory=valheim", server_unit)
+        self.assertIn(
+            "ExecStop=/usr/local/libexec/valheim-lifecycle-announcement",
+            server_unit,
+        )
         self.assertIn("ReadWritePaths=/opt/valheim/modpack", server_unit)
         self.assertIn(
             "ExecStart=/usr/local/libexec/valheim-maintenance", restart_unit
@@ -102,6 +107,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             "refusing to migrate action watchers while a request is pending",
             migration_script,
         )
+        self.assertIn("valheim-lifecycle-announcement", migration_script)
         self.assertFalse((SYSTEMD / "units").exists())
         self.assertFalse((SYSTEMD / "valheim.service.d").exists())
         self.assertFalse((SYSTEMD / "valheim-restart.service.d").exists())
@@ -124,3 +130,15 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         contents = (SCRIPTS / "valheim-rollback-request").read_text(encoding="utf-8")
         self.assertIn("cooldown_state_invalid", contents)
         self.assertNotIn("except Exception", contents)
+
+    def test_deployer_seeds_the_lifecycle_announcer_socket_config(self) -> None:
+        deployer = (SCRIPTS / "valheim-modpack-deploy").read_text(encoding="utf-8")
+        config = (
+            PROJECT_ROOT
+            / "config"
+            / "modpack"
+            / "overrides"
+            / "io.hexium.valheim.lifecycleannouncer.cfg"
+        ).read_text(encoding="utf-8")
+        self.assertIn("io.hexium.valheim.lifecycleannouncer.cfg", deployer)
+        self.assertIn("Path = /run/valheim/lifecycle-announcer.sock", config)

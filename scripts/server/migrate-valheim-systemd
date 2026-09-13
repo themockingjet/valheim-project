@@ -59,7 +59,9 @@ done
 
 /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec "$SYSTEMD_DIRECTORY"
 /usr/bin/install -o root -g root -m 0755 \
-    "$SCRIPTS_ROOT/valheim-server-launch" /usr/local/libexec/valheim-server-launch
+    "$SCRIPTS_ROOT/valheim-server-launch" \
+    "$SCRIPTS_ROOT/valheim-lifecycle-announcement" \
+    /usr/local/libexec/
 /usr/bin/install -o root -g root -m 0644 \
     "$SYSTEMD_SOURCE_ROOT/valheim.service" \
     "$SYSTEMD_SOURCE_ROOT/valheim-restart.service" \

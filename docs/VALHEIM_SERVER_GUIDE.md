@@ -79,6 +79,12 @@ root-owned one-minute status publisher timer. This keeps the dashboard
 snapshot within its five-minute freshness window without granting the
 dashboard service access to systemd or server files.
 
+It also seeds
+`/opt/valheim/modpack/config-overrides/io.hexium.valheim.lifecycleannouncer.cfg`
+when absent. The override sets the Lifecycle Announcer socket to
+`/run/valheim/lifecycle-announcer.sock`; retain that absolute path unless the
+matching `valheim.service` runtime-directory configuration is changed.
+
 After both deployments succeed, enable the server and scheduled maintenance:
 
 ```bash

@@ -62,7 +62,7 @@ restore_previous_release() {
 wait_for_dashboard_health() {
     local deadline=$((SECONDS + 15))
     while (( SECONDS < deadline )); do
-        if curl --fail --silent --show-error --max-time 2 \
+        if curl --fail --silent --max-time 2 \
             http://127.0.0.1:8080/api/healthz >/dev/null; then
             return 0
         fi
@@ -71,6 +71,9 @@ wait_for_dashboard_health() {
         fi
         sleep 1
     done
+    printf '%s\n' \
+        'valheim-dashboard-deploy: dashboard health endpoint did not respond within 15 seconds' \
+        >&2
     return 1
 }
 

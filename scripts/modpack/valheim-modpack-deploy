@@ -13,6 +13,8 @@ readonly LIBRARY_DIRECTORY="$MODPACK_ROOT/lib"
 readonly SYSTEMD_DIRECTORY=/etc/systemd/system
 readonly DASHBOARD_STATE=/var/lib/valheim-dashboard
 readonly ENABLE_DASHBOARD_ACTIONS=false
+readonly LIFECYCLE_ANNOUNCER_CONFIG="$PROJECT_ROOT/config/modpack/overrides/io.hexium.valheim.lifecycleannouncer.cfg"
+readonly LIFECYCLE_ANNOUNCER_OVERRIDE="$MODPACK_ROOT/config-overrides/io.hexium.valheim.lifecycleannouncer.cfg"
 
 fail() {
     printf 'valheim-modpack-deploy: %s\n' "$1" >&2
@@ -64,6 +66,12 @@ fi
 install -d -o root -g valheim -m 0770 "$MODPACK_ROOT"
 install -d -o root -g valheim -m 0750 "$MODPACK_ROOT/bin" "$LIBRARY_DIRECTORY"
 install -d -o valheim -g valheim -m 0750 "$MODPACK_ROOT/config-overrides"
+if [[ ! -e "$LIFECYCLE_ANNOUNCER_OVERRIDE" ]]; then
+    install -o valheim -g valheim -m 0640 \
+        "$LIFECYCLE_ANNOUNCER_CONFIG" "$LIFECYCLE_ANNOUNCER_OVERRIDE"
+elif [[ ! -f "$LIFECYCLE_ANNOUNCER_OVERRIDE" || -L "$LIFECYCLE_ANNOUNCER_OVERRIDE" ]]; then
+    fail 'lifecycle announcer config override must be a regular file'
+fi
 install -d -o root -g root -m 0755 /usr/local/libexec "$SYSTEMD_DIRECTORY"
 install -o root -g root -m 0644 "$SOURCE_ROOT/main.py" "$LIBRARY_DIRECTORY/main.py"
 install -d -o root -g root -m 0755 "$LIBRARY_DIRECTORY/src"

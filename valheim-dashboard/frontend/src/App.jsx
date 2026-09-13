@@ -168,6 +168,7 @@ function useStatusSnapshot(refreshToken) {
 function useStatusEvents(refresh) {
   useEffect(() => {
     const events = new EventSource('/api/status/events')
+    events.addEventListener('connected', refresh)
     events.addEventListener('snapshot', refresh)
     return () => events.close()
   }, [refresh])
