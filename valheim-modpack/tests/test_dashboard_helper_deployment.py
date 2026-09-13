@@ -53,6 +53,25 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             "ExecStart=/usr/local/libexec/valheim-dashboard-actions", service_unit
         )
 
+    def test_status_publisher_timer_refreshes_before_snapshot_is_stale(self) -> None:
+        service_unit = (SYSTEMD / "valheim-dashboard-status.service").read_text(
+            encoding="utf-8"
+        )
+        timer_unit = (SYSTEMD / "valheim-dashboard-status.timer").read_text(
+            encoding="utf-8"
+        )
+        deployer = (SCRIPTS / "valheim-modpack-deploy").read_text(encoding="utf-8")
+        self.assertIn(
+            "ExecStart=/usr/bin/python3 /opt/valheim/modpack/lib/status_snapshot.py",
+            service_unit,
+        )
+        self.assertIn("ProtectSystem=strict", service_unit)
+        self.assertIn("ReadWritePaths=/var/lib/valheim-dashboard", service_unit)
+        self.assertIn("OnUnitActiveSec=1min", timer_unit)
+        self.assertIn("Persistent=true", timer_unit)
+        self.assertIn("valheim-dashboard-status.timer", deployer)
+        self.assertIn("systemctl start valheim-dashboard-status.service", deployer)
+
     def test_canonical_server_units_replace_modpack_drop_ins(self) -> None:
         server_unit = (SERVER_SYSTEMD / "valheim.service").read_text(encoding="utf-8")
         restart_unit = (SERVER_SYSTEMD / "valheim-restart.service").read_text(
@@ -74,9 +93,32 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         )
         self.assertIn("OnCalendar=*-*-* 00,12:00:00 Asia/Shanghai", timer_unit)
         self.assertTrue((SERVER_SCRIPTS / "provision-valheim-server").is_file())
+        migration_script = (SERVER_SCRIPTS / "migrate-valheim-systemd").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("valheim.service.d/launcher.conf", migration_script)
+        self.assertIn("valheim-dashboard-actions.path", migration_script)
+        self.assertIn(
+            "refusing to migrate action watchers while a request is pending",
+            migration_script,
+        )
         self.assertFalse((SYSTEMD / "units").exists())
         self.assertFalse((SYSTEMD / "valheim.service.d").exists())
         self.assertFalse((SYSTEMD / "valheim-restart.service.d").exists())
+
+    def test_dashboard_deployer_requires_a_clean_root_revision(self) -> None:
+        deployer = (
+            PROJECT_ROOT / "scripts" / "dashboard" / "valheim-dashboard-deploy"
+        ).read_text(encoding="utf-8")
+        self.assertIn('git -C "$PROJECT_ROOT" rev-parse --verify HEAD', deployer)
+        self.assertIn(
+            "root repository is dirty; commit or remove all changes before deployment",
+            deployer,
+        )
+        self.assertIn(
+            'readonly RELEASE_ID=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD)',
+            deployer,
+        )
 
     def test_restart_helpers_reject_invalid_cooldown_state(self) -> None:
         for name in ("valheim-restart-request", "valheim-rollback-request"):

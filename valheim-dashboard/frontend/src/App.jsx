@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AuditTrail,
   ManifestEditor,
@@ -10,6 +10,7 @@ import './App.css'
 import { useDashboardSession } from './useDashboardSession'
 
 const STALE_AFTER_MS = 5 * 60 * 1000
+const LOG_AUTO_FOLLOW_RESUME_MS = 5 * 1000
 
 const emptyStatus = {
   state: 'loading',
@@ -285,11 +286,71 @@ function EmptyState({ children }) {
 }
 
 function LogPanel({ title, lines }) {
+  const outputRef = useRef(null)
+  const resumeTimerRef = useRef(null)
+  const isFollowingRef = useRef(true)
+
+  const clearResumeTimer = useCallback(() => {
+    if (resumeTimerRef.current !== null) {
+      clearTimeout(resumeTimerRef.current)
+      resumeTimerRef.current = null
+    }
+  }, [])
+
+  const followLatest = useCallback(() => {
+    const output = outputRef.current
+    if (output) {
+      output.scrollTop = output.scrollHeight
+    }
+  }, [])
+
+  const pauseFollowing = useCallback(() => {
+    isFollowingRef.current = false
+    clearResumeTimer()
+    resumeTimerRef.current = setTimeout(() => {
+      isFollowingRef.current = true
+      resumeTimerRef.current = null
+      followLatest()
+    }, LOG_AUTO_FOLLOW_RESUME_MS)
+  }, [clearResumeTimer, followLatest])
+
+  const handleScroll = useCallback(
+    (event) => {
+      const output = event.currentTarget
+      const isAtBottom = output.scrollHeight - output.clientHeight - output.scrollTop <= 1
+
+      if (isAtBottom) {
+        isFollowingRef.current = true
+        clearResumeTimer()
+        return
+      }
+
+      pauseFollowing()
+    },
+    [clearResumeTimer, pauseFollowing],
+  )
+
+  useEffect(() => {
+    if (lines.length && isFollowingRef.current) {
+      followLatest()
+    }
+  }, [followLatest, lines])
+
+  useEffect(() => clearResumeTimer, [clearResumeTimer])
+
   return (
     <div className="log-panel">
       <h3>{title}</h3>
       {lines.length ? (
-        <pre aria-label={`${title} log output`}>{lines.join('\n')}</pre>
+        <pre
+          ref={outputRef}
+          aria-label={`${title} log output`}
+          onScroll={handleScroll}
+          onTouchMove={pauseFollowing}
+          onWheel={pauseFollowing}
+        >
+          {lines.join('\n')}
+        </pre>
       ) : (
         <EmptyState>No entries in this snapshot.</EmptyState>
       )}

@@ -85,6 +85,8 @@ install -o root -g root -m 0644 \
     "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.service" \
     "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-world-backup-inventory.path" \
     "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-world-backup-inventory.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-status.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-dashboard-status.timer" \
     "$SYSTEMD_DIRECTORY/"
 install -d -o root -g valheim-ui -m 0750 \
     "$DASHBOARD_STATE/exports" "$DASHBOARD_STATE/state"
@@ -92,7 +94,8 @@ install -d -o root -g valheim-ui -m 0750 \
 /usr/bin/systemctl daemon-reload
 /usr/bin/systemctl start valheim-dashboard-world-backup-inventory.service
 /usr/bin/systemctl enable --now valheim-dashboard-world-backup-inventory.path
-/usr/bin/python3 "$LIBRARY_DIRECTORY/status_snapshot.py"
+/usr/bin/systemctl start valheim-dashboard-status.service
+/usr/bin/systemctl enable --now valheim-dashboard-status.timer
 
 if [[ "$enable_dashboard_actions" == true ]]; then
     /usr/bin/systemctl enable --now \

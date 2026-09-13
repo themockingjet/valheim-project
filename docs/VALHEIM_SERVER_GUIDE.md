@@ -48,6 +48,13 @@ Provisioning creates the `valheim` account plus `/opt/valheim/server`,
 `896660`; installs the BepInEx-aware launcher; and copies the inactive base
 systemd templates. It does not start the server or enable its timer.
 
+For an already-running server migrated from an earlier version of this kit,
+run `make migrate-systemd`. It installs canonical unit files and removes only
+the kit's prior drop-ins/action watchers, reloads systemd, and does not run
+SteamCMD or restart `valheim.service`. It refuses migration while a dashboard
+request or legacy action helper is active. The updated Valheim unit applies on
+the next normal restart.
+
 Before enabling the server, create and test
 `/opt/valheim/server/start_valheim_server.sh` as the `valheim` user. This
 host-owned script is the authoritative Valheim command and contains the server
@@ -67,7 +74,10 @@ The dashboard deployer creates the restricted `valheim-ui` account and the
 shared state hierarchy. The modpack deployer requires that account, installs
 the root helpers, seeds `/opt/valheim/modpack/manifest.yaml` only when absent,
 creates its writable `config-overrides` directory, starts the non-disruptive
-backup-inventory publisher, and writes the initial status export.
+backup-inventory publisher, writes the initial status export, and enables the
+root-owned one-minute status publisher timer. This keeps the dashboard
+snapshot within its five-minute freshness window without granting the
+dashboard service access to systemd or server files.
 
 After both deployments succeed, enable the server and scheduled maintenance:
 
@@ -107,7 +117,7 @@ read.
 | [`systemd/server/valheim-restart.timer`](../systemd/server/valheim-restart.timer) | `/etc/systemd/system/valheim-restart.timer` | Twice-daily maintenance schedule. |
 | [`systemd/server/valheim-world-restore-recovery.service`](../systemd/server/valheim-world-restore-recovery.service) | `/etc/systemd/system/valheim-world-restore-recovery.service` | Restores an interrupted world transaction before startup. |
 | [`systemd/dashboard/valheim-dashboard.service`](../systemd/dashboard/valheim-dashboard.service) | `/etc/systemd/system/valheim-dashboard.service` | Loopback-only dashboard service. |
-| [`systemd/modpack/`](../systemd/modpack) | `/etc/systemd/system/` | Dashboard action and backup-inventory path/service units. |
+| [`systemd/modpack/`](../systemd/modpack) | `/etc/systemd/system/` | Dashboard action, backup-inventory, and one-minute status publisher units. |
 
 ## Operational directories
 

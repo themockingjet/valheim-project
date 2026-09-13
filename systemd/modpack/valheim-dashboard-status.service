@@ -1,0 +1,11 @@
+[Unit]
+Description=Publish Valheim dashboard status snapshot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/valheim/modpack/lib/status_snapshot.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/valheim-dashboard

@@ -1,0 +1,92 @@
+#!/bin/bash
+# Install canonical units without restarting Valheim, and retire only units
+# previously installed by this deployment kit.
+set -Eeuo pipefail
+
+readonly PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+readonly SCRIPTS_ROOT="$PROJECT_ROOT/scripts/server"
+readonly SYSTEMD_SOURCE_ROOT="$PROJECT_ROOT/systemd/server"
+readonly MODPACK_SYSTEMD_SOURCE_ROOT="$PROJECT_ROOT/systemd/modpack"
+readonly SYSTEMD_DIRECTORY=/etc/systemd/system
+readonly PENDING_DIRECTORY=/var/lib/valheim-dashboard/pending
+
+readonly -a LEGACY_DROP_INS=(
+    "$SYSTEMD_DIRECTORY/valheim.service.d/launcher.conf"
+    "$SYSTEMD_DIRECTORY/valheim.service.d/world-restore-recovery.conf"
+    "$SYSTEMD_DIRECTORY/valheim-restart.service.d/modpack.conf"
+)
+readonly -a LEGACY_ACTION_PATH_UNITS=(
+    valheim-dashboard-manifest.path
+    valheim-dashboard-restart.path
+    valheim-dashboard-rollback.path
+    valheim-dashboard-world-restore.path
+)
+readonly -a LEGACY_ACTION_SERVICE_UNITS=(
+    valheim-dashboard-manifest.service
+    valheim-dashboard-restart.service
+    valheim-dashboard-rollback.service
+    valheim-dashboard-world-restore.service
+)
+
+fail() {
+    printf 'migrate-valheim-systemd: %s\n' "$1" >&2
+    exit 1
+}
+
+if [[ $EUID -ne 0 ]]; then
+    fail 'must run as root'
+fi
+if ! /usr/bin/id -u valheim >/dev/null 2>&1; then
+    fail 'valheim account does not exist; provision the server first'
+fi
+if [[ -d "$PENDING_DIRECTORY" ]] &&
+    /usr/bin/find "$PENDING_DIRECTORY" -maxdepth 1 -type f -name '*-request.json' \
+        -print -quit | /usr/bin/grep -q .; then
+    fail 'refusing to migrate action watchers while a request is pending'
+fi
+for unit in "${LEGACY_ACTION_SERVICE_UNITS[@]}"; do
+    if /usr/bin/systemctl is-active --quiet "$unit"; then
+        fail "refusing to migrate while $unit is active"
+    fi
+done
+
+legacy_actions_enabled=false
+for unit in "${LEGACY_ACTION_PATH_UNITS[@]}"; do
+    if /usr/bin/systemctl is-enabled --quiet "$unit"; then
+        legacy_actions_enabled=true
+    fi
+done
+
+/usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec "$SYSTEMD_DIRECTORY"
+/usr/bin/install -o root -g root -m 0755 \
+    "$SCRIPTS_ROOT/valheim-server-launch" /usr/local/libexec/valheim-server-launch
+/usr/bin/install -o root -g root -m 0644 \
+    "$SYSTEMD_SOURCE_ROOT/valheim.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-restart.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-restart.timer" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-world-restore-recovery.service" \
+    "$SYSTEMD_DIRECTORY/"
+/usr/bin/install -o root -g root -m 0644 \
+    "$MODPACK_SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.path" \
+    "$MODPACK_SYSTEMD_SOURCE_ROOT/valheim-dashboard-actions.service" \
+    "$SYSTEMD_DIRECTORY/"
+
+for unit in "${LEGACY_ACTION_PATH_UNITS[@]}"; do
+    if [[ -e "$SYSTEMD_DIRECTORY/$unit" ]]; then
+        /usr/bin/systemctl disable --now "$unit"
+    fi
+done
+for path in "${LEGACY_DROP_INS[@]}"; do
+    rm -f -- "$path"
+done
+for unit in "${LEGACY_ACTION_PATH_UNITS[@]}" "${LEGACY_ACTION_SERVICE_UNITS[@]}"; do
+    rm -f -- "$SYSTEMD_DIRECTORY/$unit"
+done
+
+/usr/bin/systemctl daemon-reload
+if [[ "$legacy_actions_enabled" == true ]]; then
+    /usr/bin/systemctl enable --now valheim-dashboard-actions.path
+fi
+
+printf 'migrate-valheim-systemd: completed legacy_actions_enabled=%s\n' \
+    "$legacy_actions_enabled"

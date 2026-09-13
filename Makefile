@@ -12,6 +12,7 @@ UV ?= $(DASHBOARD_HOME)/.local/bin/uv
 	server-firewall \
 	assert-server-stopped \
 	provision-server \
+	migrate-systemd \
 	dashboard-backend-test \
 	dashboard-frontend-build \
 	modpack-test \
@@ -31,6 +32,7 @@ help:
 		'Bootstrap a new host:' \
 		'  make bootstrap                 Refuse an active server, then provision/deploy; leaves Valheim disabled.' \
 		'  make assert-server-stopped     Fail safely if Valheim is running.' \
+		'  make migrate-systemd           Install canonical units and retire legacy kit-owned units without restart.' \
 		'  make server-firewall           Open the default Valheim Steam UDP ports in UFW.' \
 		'' \
 		'Validate and deploy:' \
@@ -64,6 +66,9 @@ assert-server-stopped:
 
 provision-server:
 	sudo ./scripts/server/provision-valheim-server
+
+migrate-systemd:
+	sudo ./scripts/server/migrate-valheim-systemd
 
 dashboard-backend-test:
 	test -x "$(UV)"
@@ -102,4 +107,4 @@ bootstrap:
 
 status:
 	sudo systemctl status valheim.service valheim-dashboard.service --no-pager
-	sudo systemctl list-timers --all valheim-restart.timer --no-pager
+	sudo systemctl list-timers --all valheim-restart.timer valheim-dashboard-status.timer --no-pager

@@ -15,10 +15,20 @@ readonly SOURCE_HOME=$(/usr/bin/getent passwd "$SOURCE_OWNER" | /usr/bin/cut -d:
 readonly SOURCE_UV="$SOURCE_HOME/.local/bin/uv"
 
 require_clean_revision() {
-    git -C "$SOURCE_ROOT" rev-parse --verify HEAD >/dev/null
-    git -C "$SOURCE_ROOT" diff --quiet
-    git -C "$SOURCE_ROOT" diff --cached --quiet
-    [[ -z $(git -C "$SOURCE_ROOT" status --porcelain --untracked-files=all) ]]
+    if ! git -C "$PROJECT_ROOT" rev-parse --verify HEAD >/dev/null; then
+        printf '%s\n' \
+            'valheim-dashboard-deploy: root repository has no commit; commit the deployment revision first' \
+            >&2
+        exit 1
+    fi
+    if ! git -C "$PROJECT_ROOT" diff --quiet ||
+        ! git -C "$PROJECT_ROOT" diff --cached --quiet ||
+        [[ -n $(git -C "$PROJECT_ROOT" status --porcelain --untracked-files=all) ]]; then
+        printf '%s\n' \
+            'valheim-dashboard-deploy: root repository is dirty; commit or remove all changes before deployment' \
+            >&2
+        exit 1
+    fi
 }
 
 atomic_link() {
@@ -65,7 +75,7 @@ wait_for_dashboard_health() {
 }
 
 require_clean_revision
-readonly RELEASE_ID=$(git -C "$SOURCE_ROOT" rev-parse --verify HEAD)
+readonly RELEASE_ID=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD)
 readonly RELEASE_DIRECTORY="$RELEASES_DIRECTORY/$RELEASE_ID"
 
 if [[ ! -x "$SOURCE_UV" ]]; then

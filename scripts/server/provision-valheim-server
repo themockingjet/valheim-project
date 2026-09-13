@@ -5,12 +5,10 @@ set -Eeuo pipefail
 
 readonly PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 readonly SCRIPTS_ROOT="$PROJECT_ROOT/scripts/server"
-readonly SYSTEMD_SOURCE_ROOT="$PROJECT_ROOT/systemd/server"
 readonly SERVER_ROOT=/opt/valheim
 readonly SERVER_DIRECTORY="$SERVER_ROOT/server"
 readonly DATA_DIRECTORY="$SERVER_ROOT/data"
 readonly LOG_DIRECTORY="$SERVER_ROOT/logs"
-readonly SYSTEMD_DIRECTORY=/etc/systemd/system
 readonly STEAMCMD=/usr/games/steamcmd
 
 fail() {
@@ -36,21 +34,12 @@ fi
 /usr/bin/install -d -o valheim -g valheim -m 0750 \
     "$SERVER_DIRECTORY" "$DATA_DIRECTORY" "$LOG_DIRECTORY"
 
-/usr/bin/install -o root -g root -m 0755 \
-    "$SCRIPTS_ROOT/valheim-server-launch" /usr/local/libexec/valheim-server-launch
-/usr/bin/install -o root -g root -m 0644 \
-    "$SYSTEMD_SOURCE_ROOT/valheim.service" \
-    "$SYSTEMD_SOURCE_ROOT/valheim-restart.service" \
-    "$SYSTEMD_SOURCE_ROOT/valheim-restart.timer" \
-    "$SYSTEMD_SOURCE_ROOT/valheim-world-restore-recovery.service" \
-    "$SYSTEMD_DIRECTORY/"
-
 /usr/sbin/runuser -u valheim -- "$STEAMCMD" \
     +force_install_dir "$SERVER_DIRECTORY" \
     +login anonymous \
     +app_update 896660 validate \
     +quit
-/usr/bin/systemctl daemon-reload
+"$SCRIPTS_ROOT/migrate-valheim-systemd"
 
 printf '%s\n' \
     'provision-valheim-server: server files and inactive units are installed' \
