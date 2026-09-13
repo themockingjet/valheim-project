@@ -130,7 +130,11 @@ def _validate_maintenance(value: object) -> None:
 
 def _validate_modpack(value: object) -> None:
     modpack = _require_mapping(value, "modpack")
-    _require_keys(modpack, "modpack", {"active_release", "previous_release", "packages"})
+    _require_keys(
+        modpack,
+        "modpack",
+        {"active_release", "previous_release", "packages", "manifest_packages"},
+    )
     if not _is_nullable_text(modpack["active_release"], limit=128) or not _is_nullable_text(
         modpack["previous_release"], limit=128
     ):
@@ -149,6 +153,28 @@ def _validate_modpack(value: object) -> None:
             raise SnapshotError("modpack package identifier is invalid")
         if entry["role"] not in {"server", "client"}:
             raise SnapshotError("modpack package role is invalid")
+    manifest_packages = modpack["manifest_packages"]
+    if manifest_packages is None:
+        return
+    if not isinstance(manifest_packages, list) or len(manifest_packages) > MAX_PACKAGES:
+        raise SnapshotError("modpack manifest packages are invalid")
+    for package in manifest_packages:
+        entry = _require_mapping(package, "modpack manifest package")
+        _require_keys(
+            entry,
+            "modpack manifest package",
+            {"namespace", "name", "version", "channel", "role"},
+        )
+        if not all(
+            isinstance(entry[field], str)
+            and PACKAGE_IDENTIFIER.fullmatch(entry[field]) is not None
+            for field in ("namespace", "name", "version")
+        ):
+            raise SnapshotError("modpack manifest package identifier is invalid")
+        if entry["channel"] not in {"stable", "prerelease"}:
+            raise SnapshotError("modpack manifest package channel is invalid")
+        if entry["role"] not in {"server", "client"}:
+            raise SnapshotError("modpack manifest package role is invalid")
 
 
 def _validate_logs(value: object) -> None:

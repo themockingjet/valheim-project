@@ -14,6 +14,7 @@ CATALOG_URL = "https://valheim.hexium.gg/api/v1/package/"
 MAX_CATALOG_BYTES = 8 * 1024 * 1024
 MAX_CATALOG_ITEMS = 5_000
 MAX_RESULTS = 10
+MAX_VERSIONS = 50
 CATALOG_TTL_SECONDS = 15 * 60
 QUERY_PATTERN = re.compile(r"[A-Za-z0-9 _.-]{2,64}\Z")
 IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
@@ -26,6 +27,14 @@ class CatalogError(Exception):
 
 class InvalidSearch(CatalogError):
     """A caller-provided search query is outside the fixed safe grammar."""
+
+
+class InvalidPackage(CatalogError):
+    """A package identity is outside the fixed safe grammar."""
+
+
+class PackageNotFound(CatalogError):
+    """A package identity was not found in the fixed catalogue."""
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -53,16 +62,36 @@ def _fetch_catalog() -> object:
         raise CatalogError("Hexium catalogue is invalid") from error
 
 
-def _latest_version(raw_versions: object) -> str | None:
+def _active_versions(raw_versions: object) -> list[str]:
     if not isinstance(raw_versions, list):
-        return None
+        return []
+    versions: list[str] = []
+    seen: set[str] = set()
     for version in raw_versions:
         if not isinstance(version, dict) or version.get("is_active") is not True:
             continue
         value = version.get("version_number")
-        if isinstance(value, str) and VERSION_PATTERN.fullmatch(value) is not None:
-            return value
-    return None
+        if (
+            not isinstance(value, str)
+            or VERSION_PATTERN.fullmatch(value) is None
+            or value in seen
+        ):
+            continue
+        versions.append(value)
+        seen.add(value)
+        if len(versions) == MAX_VERSIONS:
+            break
+    return versions
+
+
+def _search_result(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "namespace": entry["namespace"],
+        "name": entry["name"],
+        "latest_version": entry["latest_version"],
+        "description": entry["description"],
+        "dependency_count": entry["dependency_count"],
+    }
 
 
 def _catalog_entries(value: object) -> list[dict[str, Any]]:
@@ -74,11 +103,11 @@ def _catalog_entries(value: object) -> list[dict[str, Any]]:
             continue
         namespace = item.get("owner")
         name = item.get("name")
-        version = _latest_version(item.get("versions"))
+        versions = _active_versions(item.get("versions"))
         if not all(
             isinstance(part, str) and IDENTIFIER_PATTERN.fullmatch(part) is not None
             for part in (namespace, name)
-        ) or version is None:
+        ) or not versions:
             continue
         latest = next(
             (
@@ -86,7 +115,7 @@ def _catalog_entries(value: object) -> list[dict[str, Any]]:
                 for candidate in item["versions"]
                 if isinstance(candidate, dict)
                 and candidate.get("is_active") is True
-                and candidate.get("version_number") == version
+                and candidate.get("version_number") == versions[0]
             ),
             {},
         )
@@ -96,7 +125,8 @@ def _catalog_entries(value: object) -> list[dict[str, Any]]:
             {
                 "namespace": namespace,
                 "name": name,
-                "latest_version": version,
+                "latest_version": versions[0],
+                "versions": versions,
                 "description": description[:240] if isinstance(description, str) else "",
                 "dependency_count": len(dependencies) if isinstance(dependencies, list) else 0,
             }
@@ -141,4 +171,20 @@ class HexiumCatalog:
                 entry["namespace"].casefold(),
             )
         )
-        return matches[:MAX_RESULTS]
+        return [_search_result(entry) for entry in matches[:MAX_RESULTS]]
+
+    def package(self, namespace: str, name: str) -> dict[str, Any]:
+        if (
+            IDENTIFIER_PATTERN.fullmatch(namespace) is None
+            or IDENTIFIER_PATTERN.fullmatch(name) is None
+        ):
+            raise InvalidPackage("Package identity is invalid")
+        for entry in self._get_entries():
+            if entry["namespace"] == namespace and entry["name"] == name:
+                return {
+                    "namespace": entry["namespace"],
+                    "name": entry["name"],
+                    "latest_version": entry["latest_version"],
+                    "versions": entry["versions"],
+                }
+        raise PackageNotFound("Package was not found in the Hexium catalogue")

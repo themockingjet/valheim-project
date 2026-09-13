@@ -827,6 +827,13 @@ footer {
   white-space: nowrap;
 }
 
+.manifest-draft-help {
+  margin: 0.7rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .upcoming-manifest-empty {
   margin: 0.7rem 0 0;
   color: var(--text-muted);
@@ -845,6 +852,7 @@ footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 1rem;
   padding: 0.75rem;
   border: 1px solid var(--border);
@@ -865,6 +873,32 @@ footer {
   font-size: 0.78rem;
 }
 
+.upcoming-package-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.version-select {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.version-select select {
+  max-width: 10rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  font: inherit;
+}
+
+.row-version,
 .row-remove {
   border: 1px solid var(--border-strong);
   border-radius: 0.5rem;
@@ -872,6 +906,14 @@ footer {
   color: var(--text-muted);
   cursor: pointer;
   padding: 0.4rem 0.6rem;
+}
+
+.package-version-error {
+  flex-basis: 100%;
+  margin: -0.3rem 0 0;
+  color: var(--danger);
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 
 .manifest-form-actions {
@@ -1032,5 +1074,18 @@ button.primary.danger {
   .upcoming-package {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .upcoming-package-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .version-select {
+    justify-content: space-between;
+  }
+
+  .version-select select {
+    max-width: none;
   }
 }

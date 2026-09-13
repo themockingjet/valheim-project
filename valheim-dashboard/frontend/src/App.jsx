@@ -76,6 +76,17 @@ function isStatusSnapshot(value) {
         typeof item.version === 'string' &&
         (item.role === 'server' || item.role === 'client'),
     ) &&
+    (modpack.manifest_packages === null ||
+      (Array.isArray(modpack.manifest_packages) &&
+        modpack.manifest_packages.every(
+          (item) =>
+            isRecord(item) &&
+            typeof item.namespace === 'string' &&
+            typeof item.name === 'string' &&
+            typeof item.version === 'string' &&
+            (item.channel === 'stable' || item.channel === 'prerelease') &&
+            (item.role === 'server' || item.role === 'client'),
+        ))) &&
     isRecord(logs) &&
     Array.isArray(logs.server) &&
     logs.server.every((line) => typeof line === 'string') &&
@@ -688,7 +699,10 @@ function App() {
       )}
 
       {sessionError && <p className="action-result error">{sessionError}</p>}
-      <ManifestEditor csrfToken={csrfToken} />
+      <ManifestEditor
+        csrfToken={csrfToken}
+        manifestPackages={status.state === 'ready' ? status.data.modpack.manifest_packages : undefined}
+      />
       <div className="content-grid">
         <UpdateAction csrfToken={csrfToken} />
         <RollbackAction csrfToken={csrfToken} />

@@ -105,6 +105,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/hexium/search":
             self._send_hexium_search(urlsplit(self.path).query)
             return
+        if path.startswith("/api/hexium/package/"):
+            self._send_hexium_package(path)
+            return
         if path == "/api/status/events":
             self._stream_status_events()
             return
@@ -268,6 +271,37 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             )
             return
         self._send_json(HTTPStatus.OK, {"results": results})
+
+    def _send_hexium_package(self, path: str) -> None:
+        parts = path.removeprefix("/api/hexium/package/").split("/")
+        if len(parts) != 2:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": {"code": "invalid_package", "message": "A package identity is required"}},
+            )
+            return
+        namespace, name = (unquote(part) for part in parts)
+        try:
+            package = self.package_catalog.package(namespace, name)
+        except hexium_catalog.InvalidPackage as error:
+            self._send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": {"code": "invalid_package", "message": str(error)}},
+            )
+            return
+        except hexium_catalog.PackageNotFound as error:
+            self._send_json(
+                HTTPStatus.NOT_FOUND,
+                {"error": {"code": "package_not_found", "message": str(error)}},
+            )
+            return
+        except hexium_catalog.CatalogError as error:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": {"code": "hexium_unavailable", "message": str(error)}},
+            )
+            return
+        self._send_json(HTTPStatus.OK, package)
 
     def _send_pending_status(self, action: str) -> None:
         request_file, result_file, _builder, _audit_action = PENDING_ACTIONS[action]

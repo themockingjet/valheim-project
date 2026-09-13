@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
-const MAX_ROWS = 20
+const MAX_ROWS = 50
 
 function searchQueryFromInput(value) {
   const input = value.trim()
@@ -103,19 +103,151 @@ function ActionResult({ status }) {
   return <p className="action-result muted">No request has been submitted yet.</p>
 }
 
-export function ManifestEditor({ csrfToken }) {
-  const [rows, setRows] = useState([])
+function packageRows(packages) {
+  return packages.map((item) => ({
+    namespace: item.namespace,
+    name: item.name,
+    version: item.version,
+    channel: item.channel ?? 'stable',
+    role: item.role,
+  }))
+}
+
+function packageKey({ namespace, name }) {
+  return `${namespace}/${name}`
+}
+
+function ManifestEditorState({ children }) {
+  return (
+    <section className="panel actions-panel" aria-labelledby="manifest-editor-heading">
+      <div className="section-heading">
+        <div>
+          <p className="section-eyebrow">Queue for next maintenance</p>
+          <h2 id="manifest-editor-heading">Pending Hexium manifest</h2>
+        </div>
+        <p className="section-description">
+          Add, remove, or update packages from the current manifest. Changes are staged for the
+          next scheduled maintenance window only and never restart the server on their own.
+        </p>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+export function ManifestEditor({ csrfToken, manifestPackages }) {
+  const [refreshToken, setRefreshToken] = useState(0)
+  const { status } = usePendingStatus('/api/pending/manifest', refreshToken)
+  const refreshPendingStatus = useCallback(
+    () => setRefreshToken((current) => current + 1),
+    [],
+  )
+
+  if (manifestPackages === undefined || status.state === 'loading') {
+    return (
+      <ManifestEditorState>
+        <p className="action-result muted">Loading the current manifest…</p>
+      </ManifestEditorState>
+    )
+  }
+  if (status.state === 'error') {
+    return (
+      <ManifestEditorState>
+        <p className="action-result error">
+          The queued manifest could not be loaded. Package changes are disabled to avoid replacing
+          it.
+        </p>
+      </ManifestEditorState>
+    )
+  }
+  if (!Array.isArray(manifestPackages)) {
+    return (
+      <ManifestEditorState>
+        <p className="action-result error">
+          The current manifest could not be loaded. Package changes are disabled to avoid replacing
+          it.
+        </p>
+      </ManifestEditorState>
+    )
+  }
+  if (status.pending && !Array.isArray(status.request?.packages)) {
+    return (
+      <ManifestEditorState>
+        <p className="action-result error">
+          The queued manifest could not be loaded. Package changes are disabled to avoid replacing
+          it.
+        </p>
+      </ManifestEditorState>
+    )
+  }
+
+  const initialRows = packageRows(status.pending ? status.request.packages : manifestPackages)
+  return (
+    <ManifestDraftEditor
+      key={JSON.stringify(initialRows)}
+      csrfToken={csrfToken}
+      initialRows={initialRows}
+      draftSource={status.pending ? 'Loaded the queued manifest.' : 'Loaded the current manifest.'}
+      pendingStatus={status}
+      onQueued={refreshPendingStatus}
+    />
+  )
+}
+
+function ManifestDraftEditor({ csrfToken, initialRows, draftSource, pendingStatus, onQueued }) {
+  const [rows, setRows] = useState(initialRows)
+  const [versionStates, setVersionStates] = useState({})
   const [searchInput, setSearchInput] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchError, setSearchError] = useState('')
   const [searching, setSearching] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [refreshToken, setRefreshToken] = useState(0)
-  const { status } = usePendingStatus('/api/pending/manifest', refreshToken)
 
   const removeRow = (index) => {
     setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))
+  }
+
+  const loadVersions = async (row) => {
+    const key = packageKey(row)
+    if (versionStates[key]?.state === 'loading' || versionStates[key]?.state === 'ready') {
+      return
+    }
+    setVersionStates((current) => ({ ...current, [key]: { state: 'loading' } }))
+    try {
+      const response = await fetch(
+        `/api/hexium/package/${encodeURIComponent(row.namespace)}/${encodeURIComponent(row.name)}`,
+      )
+      const payload = await response.json().catch(() => null)
+      if (
+        !response.ok ||
+        payload?.namespace !== row.namespace ||
+        payload?.name !== row.name ||
+        !Array.isArray(payload?.versions) ||
+        payload.versions.length === 0 ||
+        !payload.versions.every((version) => typeof version === 'string')
+      ) {
+        throw new Error(payload?.error?.message ?? 'Package versions are unavailable.')
+      }
+      setVersionStates((current) => ({
+        ...current,
+        [key]: { state: 'ready', versions: payload.versions },
+      }))
+    } catch (error) {
+      setVersionStates((current) => ({
+        ...current,
+        [key]: {
+          state: 'error',
+          message: error instanceof Error ? error.message : 'Package versions are unavailable.',
+        },
+      }))
+    }
+  }
+
+  const changeVersion = (index, version) => {
+    setRows((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? { ...row, version } : row)),
+    )
   }
 
   const searchPackages = async (event) => {
@@ -140,12 +272,10 @@ export function ManifestEditor({ csrfToken }) {
 
   const addSearchResult = (result) => {
     setRows((current) => {
-      if (
-        current.length >= MAX_ROWS ||
-        current.some(
-          (row) => row.namespace === result.namespace && row.name === result.name,
-        )
-      ) {
+      const index = current.findIndex(
+        (row) => row.namespace === result.namespace && row.name === result.name,
+      )
+      if (index === -1 && current.length >= MAX_ROWS) {
         return current
       }
       const selectedRow = {
@@ -155,7 +285,10 @@ export function ManifestEditor({ csrfToken }) {
         channel: 'stable',
         role: 'server',
       }
-      return [...current, selectedRow]
+      if (index === -1) {
+        return [...current, selectedRow]
+      }
+      return current.map((row, rowIndex) => (rowIndex === index ? selectedRow : row))
     })
   }
 
@@ -165,7 +298,7 @@ export function ManifestEditor({ csrfToken }) {
     setSubmitting(true)
     try {
       await submitPendingAction('/api/pending/manifest', { packages: rows }, csrfToken)
-      setRefreshToken((current) => current + 1)
+      onQueued()
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Submission failed.')
     } finally {
@@ -174,18 +307,7 @@ export function ManifestEditor({ csrfToken }) {
   }
 
   return (
-    <section className="panel actions-panel" aria-labelledby="manifest-editor-heading">
-      <div className="section-heading">
-        <div>
-          <p className="section-eyebrow">Queue for next maintenance</p>
-          <h2 id="manifest-editor-heading">Pending Hexium manifest</h2>
-        </div>
-        <p className="section-description">
-          Validated changes are staged for the next scheduled maintenance window only. This
-          never restarts the server or bypasses the 00:00 / 12:00 (Asia/Shanghai) cadence.
-        </p>
-      </div>
-
+    <ManifestEditorState>
       <form onSubmit={searchPackages} className="package-search">
         <label htmlFor="hexium-search">Find a Hexium mod</label>
         <div className="package-search-controls">
@@ -202,7 +324,8 @@ export function ManifestEditor({ csrfToken }) {
         </div>
         <p className="search-help">
           Search returns matches first. Choose <strong>Add to manifest</strong> on the mod you
-          want; pasting a Hexium package link only searches for it.
+          want; pasting a Hexium package link only searches for it. After adding a package, use
+          <strong> Choose version</strong> below to select an active Hexium version.
         </p>
       </form>
       {searchError && <p className="action-result error">{searchError}</p>}
@@ -213,6 +336,10 @@ export function ManifestEditor({ csrfToken }) {
             const isAdded = rows.some(
               (row) => row.namespace === result.namespace && row.name === result.name,
             )
+            const selectedVersion = rows.find(
+              (row) => row.namespace === result.namespace && row.name === result.name,
+            )?.version
+            const isCurrentVersion = selectedVersion === result.latest_version
             return (
               <article className="search-result" key={`${result.namespace}-${result.name}`}>
                 <div>
@@ -224,9 +351,12 @@ export function ManifestEditor({ csrfToken }) {
                 <button
                   type="button"
                   onClick={() => addSearchResult(result)}
-                  disabled={isAdded || rows.length >= MAX_ROWS}
+                  disabled={
+                    (isAdded && isCurrentVersion) ||
+                    (!isAdded && rows.length >= MAX_ROWS)
+                  }
                 >
-                  {isAdded ? 'Added' : 'Add to manifest'}
+                  {isAdded ? (isCurrentVersion ? 'Already selected' : 'Update to latest') : 'Add to manifest'}
                 </button>
               </article>
             )
@@ -238,36 +368,80 @@ export function ManifestEditor({ csrfToken }) {
         <section className="upcoming-manifest" aria-labelledby="upcoming-manifest-heading">
           <div className="upcoming-manifest-heading">
             <div>
-              <p className="section-eyebrow">Selection-only draft</p>
-              <h3 id="upcoming-manifest-heading">Upcoming manifest</h3>
+              <p className="section-eyebrow">Editable draft</p>
+              <h3 id="upcoming-manifest-heading">Managed manifest packages</h3>
             </div>
             <span>{rows.length} selected</span>
           </div>
+          <p className="manifest-draft-help">
+            These declared packages will be installed, changed, or uninstalled at the next
+            maintenance run. Dependencies are resolved automatically and cannot be removed
+            independently.
+          </p>
           {rows.length === 0 ? (
-            <p className="upcoming-manifest-empty">
-              Search Hexium above and add a result to build the upcoming manifest.
-            </p>
+            <p className="upcoming-manifest-empty">No packages are selected.</p>
           ) : (
-            <ul className="upcoming-package-list" aria-live="polite">
-              {rows.map((row, index) => (
-                <li className="upcoming-package" key={`${row.namespace}-${row.name}`}>
-                  <div>
-                    <strong>{row.name}</strong>
-                    <span>
-                      {row.namespace} · version {row.version}
-                    </span>
-                    <small>Hexium · {row.channel} channel · {row.role}</small>
-                  </div>
-                  <button
-                    type="button"
-                    className="row-remove"
-                    onClick={() => removeRow(index)}
-                    aria-label={`Remove ${row.name} from upcoming manifest`}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
+            <ul className="upcoming-package-list">
+              {rows.map((row, index) => {
+                const versionState = versionStates[packageKey(row)]
+                const availableVersions = versionState?.versions ?? []
+                const selectableVersions = availableVersions.includes(row.version)
+                  ? availableVersions
+                  : [row.version, ...availableVersions]
+                return (
+                  <li className="upcoming-package" key={`${row.namespace}-${row.name}`}>
+                    <div>
+                      <strong>{row.name}</strong>
+                      <span>
+                        {row.namespace} · version {row.version}
+                      </span>
+                      <small>Hexium · {row.channel} channel · {row.role}</small>
+                    </div>
+                    <div className="upcoming-package-actions">
+                      {versionState?.state === 'ready' ? (
+                        <label className="version-select">
+                          <span>Version</span>
+                          <select
+                            value={row.version}
+                            onChange={(event) => changeVersion(index, event.target.value)}
+                          >
+                            {selectableVersions.map((version) => (
+                              <option key={version} value={version}>
+                                {version}
+                                {!availableVersions.includes(version) ? ' (currently selected)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : (
+                        <button
+                          type="button"
+                          className="row-version"
+                          onClick={() => loadVersions(row)}
+                          disabled={versionState?.state === 'loading'}
+                        >
+                          {versionState?.state === 'loading'
+                            ? 'Loading versions…'
+                            : 'Choose version'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="row-remove"
+                        onClick={() => removeRow(index)}
+                        aria-label={`Uninstall ${row.name} at the next maintenance run`}
+                      >
+                        Uninstall
+                      </button>
+                    </div>
+                    {versionState?.state === 'error' && (
+                      <p className="package-version-error" role="alert">
+                        {versionState.message}
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </section>
@@ -281,9 +455,10 @@ export function ManifestEditor({ csrfToken }) {
           </button>
         </div>
       </form>
+      {draftSource && <p className="action-result muted">{draftSource}</p>}
       {submitError && <p className="action-result error">{submitError}</p>}
-      <ActionResult status={status} />
-    </section>
+      <ActionResult status={pendingStatus} />
+    </ManifestEditorState>
   )
 }
 

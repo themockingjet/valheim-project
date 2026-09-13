@@ -57,6 +57,19 @@ class StatusSnapshotTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
+            (root / "manifest.yaml").write_text(
+                """
+schema_version: 1
+packages:
+  - source: hexium
+    namespace: Author
+    name: Mod
+    version: "1.2.3"
+    channel: stable
+    role: server
+""".lstrip(),
+                encoding="utf-8",
+            )
             server_log = root / "server.log"
             server_log.write_text(
                 "token=do-not-leak https://example.invalid " + "x" * 600,
@@ -93,11 +106,36 @@ class StatusSnapshotTests(unittest.TestCase):
             )
             self.assertEqual(snapshot["modpack"]["active_release"], "release-current")
             self.assertEqual(snapshot["modpack"]["packages"][0]["role"], "server")
+            self.assertEqual(
+                snapshot["modpack"]["manifest_packages"],
+                [
+                    {
+                        "namespace": "Author",
+                        "name": "Mod",
+                        "version": "1.2.3",
+                        "channel": "stable",
+                        "role": "server",
+                    }
+                ],
+            )
             self.assertNotIn("download_url", json.dumps(snapshot))
             self.assertNotIn("sha256", json.dumps(snapshot))
             self.assertLessEqual(len(snapshot["logs"]["server"][0]), 500)
             self.assertIn("[redacted-url]", snapshot["logs"]["server"][0])
             self.assertIn("[redacted]", snapshot["logs"]["server"][0])
+
+    def test_invalid_manifest_is_not_exported_as_an_empty_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.yaml").write_text("not: a valid manifest\n", encoding="utf-8")
+            snapshot = status_snapshot.build_snapshot(
+                modpack_root=root,
+                server_log=root / "missing-server.log",
+                maintenance_log=root / "missing-maintenance.log",
+                generated_at="2026-09-13T00:00:00Z",
+            )
+
+            self.assertIsNone(snapshot["modpack"]["manifest_packages"])
 
     def test_publish_replaces_atomically_with_bounded_mode(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

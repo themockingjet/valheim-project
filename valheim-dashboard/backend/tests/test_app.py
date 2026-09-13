@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from src import audit, pending
-from src.hexium_catalog import InvalidSearch
+from src.hexium_catalog import InvalidPackage, InvalidSearch, PackageNotFound
 from src.app import HOST, create_development_server, create_server
 from src.status_snapshot import MAX_SNAPSHOT_BYTES
 
@@ -29,6 +29,18 @@ class _FakePackageCatalog:
                 "dependency_count": 1,
             }
         ]
+
+    def package(self, namespace: str, name: str) -> dict[str, object]:
+        if namespace == "../../etc":
+            raise InvalidPackage("Package identity is invalid")
+        if namespace != "ExampleAuthor" or name != "BetterWards":
+            raise PackageNotFound("Package was not found in the Hexium catalogue")
+        return {
+            "namespace": namespace,
+            "name": name,
+            "latest_version": "1.2.3",
+            "versions": ["1.2.3", "1.2.2"],
+        }
 
 
 class DashboardHarnessTests(unittest.TestCase):
@@ -131,6 +143,15 @@ class ProductionServerTests(unittest.TestCase):
                         "namespace": "denikson",
                         "name": "BepInExPack_Valheim",
                         "version": "5.4.2350",
+                        "role": "server",
+                    }
+                ],
+                "manifest_packages": [
+                    {
+                        "namespace": "denikson",
+                        "name": "BepInExPack_Valheim",
+                        "version": "5.4.2350",
+                        "channel": "stable",
                         "role": "server",
                     }
                 ],
@@ -618,6 +639,28 @@ class PendingWorkflowTests(unittest.TestCase):
         response = connection.getresponse()
         self.assertEqual(response.status, 400)
         self.assertEqual(json.loads(response.read())["error"]["code"], "invalid_search")
+
+    def test_hexium_package_returns_available_versions(self) -> None:
+        connection = self._connection()
+        connection.request("GET", "/api/hexium/package/ExampleAuthor/BetterWards")
+        response = connection.getresponse()
+        self.assertEqual(response.status, 200)
+        self.assertEqual(
+            json.loads(response.read()),
+            {
+                "namespace": "ExampleAuthor",
+                "name": "BetterWards",
+                "latest_version": "1.2.3",
+                "versions": ["1.2.3", "1.2.2"],
+            },
+        )
+
+    def test_hexium_package_rejects_unknown_package(self) -> None:
+        connection = self._connection()
+        connection.request("GET", "/api/hexium/package/Unknown/Missing")
+        response = connection.getresponse()
+        self.assertEqual(response.status, 404)
+        self.assertEqual(json.loads(response.read())["error"]["code"], "package_not_found")
 
     def test_audit_endpoint_reports_bounded_events(self) -> None:
         cookie, csrf = self._get_session()

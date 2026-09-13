@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Build and atomically publish the bounded dashboard status snapshot.
-
-This module deliberately has no project dependencies.  It runs as root from
-the maintenance service and only copies a small, allow-listed view of the
-server and modpack state into the dashboard state directory.
-"""
+"""Build and atomically publish the bounded dashboard status snapshot."""
 
 from collections import deque
 from datetime import datetime, timezone
@@ -18,6 +13,9 @@ import subprocess
 import tempfile
 import time
 from typing import Any, Sequence
+
+from src.errors import ModpackError
+from src.manifest import load_manifest
 
 DEFAULT_MODPACK_ROOT = Path("/opt/valheim/modpack")
 DEFAULT_OUTPUT = Path("/var/lib/valheim-dashboard/exports/status.json")
@@ -249,6 +247,23 @@ def _release_packages(root: Path, release: Path | None) -> list[dict[str, str]]:
     return packages
 
 
+def _manifest_packages(path: Path) -> list[dict[str, str]] | None:
+    try:
+        packages = load_manifest(path)
+    except ModpackError:
+        return None
+    return [
+        {
+            "namespace": package.namespace,
+            "name": package.name,
+            "version": package.version,
+            "channel": "prerelease" if package.allow_prerelease else "stable",
+            "role": package.role,
+        }
+        for package in packages
+    ]
+
+
 def _default_maintenance_state() -> dict[str, Any]:
     return {
         "outcome": "success",
@@ -384,6 +399,7 @@ def build_snapshot(
             "active_release": current.name if current is not None else None,
             "previous_release": previous.name if previous is not None else None,
             "packages": _release_packages(modpack_root, current),
+            "manifest_packages": _manifest_packages(modpack_root / "manifest.yaml"),
         },
         "logs": {
             "server": _read_log(server_log),

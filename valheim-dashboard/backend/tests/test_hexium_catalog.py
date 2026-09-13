@@ -32,7 +32,15 @@ def catalogue() -> list[dict[str, object]]:
                     "is_active": True,
                     "description": "x" * 500,
                     "dependencies": ["one", "two"],
-                }
+                },
+                {
+                    "version_number": "1.2.2",
+                    "is_active": True,
+                },
+                {
+                    "version_number": "1.2.1",
+                    "is_active": False,
+                },
             ],
         },
         {
@@ -55,6 +63,12 @@ class HexiumCatalogTests(unittest.TestCase):
         self.assertEqual(results[0]["dependency_count"], 2)
         self.assertLessEqual(len(results[0]["description"]), 240)
         self.assertNotIn("download_url", results[0])
+
+    def test_package_returns_bounded_active_versions(self) -> None:
+        with patch("src.hexium_catalog._fetch_catalog", return_value=catalogue()):
+            result = HexiumCatalog().package("Other", "BetterWards")
+        self.assertEqual(result["latest_version"], "1.2.3")
+        self.assertEqual(result["versions"], ["1.2.3", "1.2.2"])
 
     def test_search_rejects_unsafe_or_too_short_queries(self) -> None:
         catalog = HexiumCatalog()

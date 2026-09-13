@@ -94,8 +94,10 @@ The dashboard will:
 - display exported server and maintenance status, refreshing the validated
   snapshot only when the fixed same-origin SSE change signal observes a new
   root-exported snapshot;
-- search a bounded, fixed-source Hexium catalogue and require explicit package
-  selection to build a removable upcoming-manifest preview before queueing;
+- seed the editable manifest from the current declared packages (or an already
+  queued manifest), then support explicit package additions, removals, and
+  bounded active-version selection before queueing the complete resulting
+  manifest; resolver-managed dependencies remain read-only;
 - validate and queue Hexium manifest changes for the next maintenance window;
 - offer an explicitly confirmed update-and-restart action that runs the same
   maintenance workflow immediately;
