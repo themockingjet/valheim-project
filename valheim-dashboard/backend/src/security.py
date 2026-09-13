@@ -1,4 +1,4 @@
-"""Bounded in-memory sessions plus CSRF and exact Host/Origin/JSON checks.
+"""Bounded in-memory sessions plus CSRF and fixed loopback Host/Origin/JSON checks.
 
 This backend has no separate authentication: reaching the loopback listener
 (directly or through an operator's own SSH tunnel) is the access boundary.
@@ -16,6 +16,7 @@ from typing import NamedTuple
 SESSION_COOKIE_NAME = "vd_session"
 MAX_SESSIONS = 64
 SESSION_TTL_SECONDS = 4 * 60 * 60
+LOOPBACK_HOST_ALIASES = frozenset({"127.0.0.1:8080", "localhost:8080"})
 
 
 class Session(NamedTuple):
@@ -95,6 +96,12 @@ def default_allowed_host() -> str:
     return os.environ.get("VALHEIM_DASHBOARD_ALLOWED_HOST", "127.0.0.1:8080")
 
 
+def _allowed_hosts(allowed_host: str) -> frozenset[str]:
+    if allowed_host == "127.0.0.1:8080":
+        return LOOPBACK_HOST_ALIASES
+    return frozenset({allowed_host})
+
+
 class RequestRejected(Exception):
     """A state-changing request failed a strict security check."""
 
@@ -118,9 +125,9 @@ def require_safe_state_change(
 
     if method != "POST":
         raise RequestRejected("method_not_allowed", "Only POST is supported for this action")
-    if host_header != allowed_host:
+    if host_header not in _allowed_hosts(allowed_host):
         raise RequestRejected("host_rejected", "Host header does not match the dashboard listener")
-    expected_origin = f"http://{allowed_host}"
+    expected_origin = f"http://{host_header}"
     if origin_header != expected_origin:
         raise RequestRejected("origin_rejected", "Origin header does not match the dashboard listener")
     if content_type_header != "application/json":

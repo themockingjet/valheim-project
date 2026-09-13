@@ -77,6 +77,9 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         restart_unit = (SERVER_SYSTEMD / "valheim-restart.service").read_text(
             encoding="utf-8"
         )
+        announcement_unit = (
+            SERVER_SYSTEMD / "valheim-restart-announcement.service"
+        ).read_text(encoding="utf-8")
         timer_unit = (SERVER_SYSTEMD / "valheim-restart.timer").read_text(
             encoding="utf-8"
         )
@@ -88,15 +91,21 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             "Requires=valheim-world-restore-recovery.service", server_unit
         )
         self.assertIn("RuntimeDirectory=valheim", server_unit)
+        self.assertIn("TimeoutStopSec=8min", server_unit)
+        self.assertNotIn("ExecStop=", server_unit)
         self.assertIn(
-            "ExecStop=/usr/local/libexec/valheim-lifecycle-announcement",
-            server_unit,
+            "ExecStart=/usr/local/libexec/valheim-restart-announcement",
+            announcement_unit,
         )
+        self.assertIn("User=valheim", announcement_unit)
+        self.assertIn("TimeoutStartSec=16min", announcement_unit)
+        self.assertIn("OnSuccess=valheim-restart.service", announcement_unit)
         self.assertIn("ReadWritePaths=/opt/valheim/modpack", server_unit)
         self.assertIn(
             "ExecStart=/usr/local/libexec/valheim-maintenance", restart_unit
         )
-        self.assertIn("OnCalendar=*-*-* 00,12:00:00 Asia/Shanghai", timer_unit)
+        self.assertIn("OnCalendar=*-*-* 11,23:45:00 Asia/Shanghai", timer_unit)
+        self.assertIn("Unit=valheim-restart-announcement.service", timer_unit)
         self.assertTrue((SERVER_SCRIPTS / "provision-valheim-server").is_file())
         migration_script = (SERVER_SCRIPTS / "migrate-valheim-systemd").read_text(
             encoding="utf-8"
@@ -107,10 +116,31 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             "refusing to migrate action watchers while a request is pending",
             migration_script,
         )
-        self.assertIn("valheim-lifecycle-announcement", migration_script)
+        self.assertIn("valheim-restart-announcement", migration_script)
         self.assertFalse((SYSTEMD / "units").exists())
         self.assertFalse((SYSTEMD / "valheim.service.d").exists())
         self.assertFalse((SYSTEMD / "valheim-restart.service.d").exists())
+
+    def test_scheduled_restart_announcer_has_the_requested_countdown(self) -> None:
+        announcer = (
+            SERVER_SCRIPTS / "valheim-restart-announcement"
+        ).read_text(encoding="utf-8")
+        subprocess.run(
+            ["bash", "-n", SERVER_SCRIPTS / "valheim-restart-announcement"],
+            check=True,
+        )
+        for minutes in (15, 10, 5, 3, 1):
+            with self.subTest(minutes=minutes):
+                self.assertIn(f"scheduled-restart-{minutes}m", announcer)
+                self.assertIn(
+                    f"Scheduled server restart begins in {minutes} minute"
+                    f"{'' if minutes == 1 else 's'}.",
+                    announcer,
+                )
+        self.assertIn("scheduled-restart-now", announcer)
+        self.assertEqual(announcer.count("/usr/bin/sleep 300"), 2)
+        self.assertEqual(announcer.count("/usr/bin/sleep 120"), 2)
+        self.assertIn("/usr/bin/sleep 60", announcer)
 
     def test_dashboard_deployer_requires_a_clean_root_revision(self) -> None:
         deployer = (

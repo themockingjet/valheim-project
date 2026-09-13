@@ -79,6 +79,28 @@ class RequireSafeStateChangeTests(unittest.TestCase):
     def test_valid_request_passes(self) -> None:
         self._call()
 
+    def test_localhost_alias_passes_with_matching_origin(self) -> None:
+        self._call(
+            host_header="localhost:8080",
+            origin_header="http://localhost:8080",
+        )
+
+    def test_localhost_alias_rejects_numeric_loopback_origin(self) -> None:
+        with self.assertRaises(RequestRejected) as context:
+            self._call(
+                host_header="localhost:8080",
+                origin_header="http://127.0.0.1:8080",
+            )
+        self.assertEqual(context.exception.code, "origin_rejected")
+
+    def test_localhost_alias_rejects_another_port(self) -> None:
+        with self.assertRaises(RequestRejected) as context:
+            self._call(
+                host_header="localhost:8081",
+                origin_header="http://localhost:8081",
+            )
+        self.assertEqual(context.exception.code, "host_rejected")
+
     def test_rejects_non_post_method(self) -> None:
         with self.assertRaises(RequestRejected) as context:
             self._call(method="GET")

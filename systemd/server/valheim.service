@@ -14,7 +14,6 @@ KillSignal=SIGINT
 RuntimeDirectory=valheim
 RuntimeDirectoryMode=0750
 TimeoutStopSec=8min
-ExecStop=/usr/local/libexec/valheim-lifecycle-announcement
 Restart=on-failure
 RestartSec=10
 UMask=0077

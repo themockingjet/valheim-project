@@ -1,0 +1,38 @@
+#!/bin/bash
+# Run by valheim-restart.timer before scheduled maintenance. The plugin accepts
+# only callers with the same Unix UID as the Valheim server.
+set -Eeuo pipefail
+
+readonly SOCKET_PATH=/run/valheim/lifecycle-announcer.sock
+
+log() {
+    printf 'valheim-restart-announcement event=%s %s\n' "$1" "${2:-}"
+}
+
+send() {
+    local payload=$1 response
+    response=$(/usr/bin/printf '%s' "$payload" | /usr/bin/nc -N -U "$SOCKET_PATH")
+    if ! /usr/bin/printf '%s' "$response" | /usr/bin/python3 -c \
+        'import json, sys; value = json.load(sys.stdin); raise SystemExit(0 if value.get("ok") is True else 1)'; then
+        log failed 'reason=plugin_rejected_request'
+        return 1
+    fi
+}
+
+if [[ ! -S "$SOCKET_PATH" ]]; then
+    log skipped 'reason=plugin_socket_unavailable'
+    exit 0
+fi
+
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-15m","message":"Scheduled server restart begins in 15 minutes. Please move somewhere safe."}'
+/usr/bin/sleep 300
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-10m","message":"Scheduled server restart begins in 10 minutes. Please move somewhere safe."}'
+/usr/bin/sleep 300
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-5m","message":"Scheduled server restart begins in 5 minutes. Please move somewhere safe."}'
+/usr/bin/sleep 120
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-3m","message":"Scheduled server restart begins in 3 minutes. Please log out safely."}'
+/usr/bin/sleep 120
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-1m","message":"Scheduled server restart begins in 1 minute. Please log out safely."}'
+/usr/bin/sleep 60
+send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-now","message":"Scheduled server restart is starting now."}'
+log completed

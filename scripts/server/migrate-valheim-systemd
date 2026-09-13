@@ -60,11 +60,13 @@ done
 /usr/bin/install -d -o root -g root -m 0755 /usr/local/libexec "$SYSTEMD_DIRECTORY"
 /usr/bin/install -o root -g root -m 0755 \
     "$SCRIPTS_ROOT/valheim-server-launch" \
-    "$SCRIPTS_ROOT/valheim-lifecycle-announcement" \
+    "$SCRIPTS_ROOT/valheim-restart-announcement" \
     /usr/local/libexec/
+/usr/bin/rm -f -- /usr/local/libexec/valheim-lifecycle-announcement
 /usr/bin/install -o root -g root -m 0644 \
     "$SYSTEMD_SOURCE_ROOT/valheim.service" \
     "$SYSTEMD_SOURCE_ROOT/valheim-restart.service" \
+    "$SYSTEMD_SOURCE_ROOT/valheim-restart-announcement.service" \
     "$SYSTEMD_SOURCE_ROOT/valheim-restart.timer" \
     "$SYSTEMD_SOURCE_ROOT/valheim-world-restore-recovery.service" \
     "$SYSTEMD_DIRECTORY/"
