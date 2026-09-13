@@ -99,6 +99,8 @@ The dashboard will:
   bounded active-version selection before queueing the complete resulting
   manifest; resolver-managed dependencies remain read-only;
 - validate and queue Hexium manifest changes for the next maintenance window;
+- edit existing managed BepInEx configuration values and queue their overrides
+  for the next maintenance window;
 - offer an explicitly confirmed update-and-restart action that runs the same
   maintenance workflow immediately;
 - offer confirmed rollback requests through scoped helpers.

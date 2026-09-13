@@ -334,6 +334,7 @@ class PendingWorkflowTests(unittest.TestCase):
         self.state_directory = root / "state"
         self.audit_directory = root / "audit"
         self.world_backup_path = root / "world-backups.json"
+        self.mod_config_path = root / "mod-configs.json"
         self.package_catalog = _FakePackageCatalog()
         self.allowed_host = "127.0.0.1:8080"
         self.server = create_server(
@@ -341,6 +342,7 @@ class PendingWorkflowTests(unittest.TestCase):
             state_directory=self.state_directory,
             audit_directory=self.audit_directory,
             world_backup_path=self.world_backup_path,
+            mod_config_path=self.mod_config_path,
             package_catalog=self.package_catalog,
             allowed_host=self.allowed_host,
             port=0,
@@ -367,6 +369,29 @@ class PendingWorkflowTests(unittest.TestCase):
         set_cookie = response.getheader("Set-Cookie")
         cookie = set_cookie.split(";", 1)[0]
         return cookie, body["csrf_token"]
+
+    def _write_config_export(self) -> None:
+        self.mod_config_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "files": [
+                        {
+                            "path": "Example.cfg",
+                            "entries": [
+                                {
+                                    "section": "General",
+                                    "key": "Enabled",
+                                    "value": "true",
+                                }
+                            ],
+                        }
+                    ],
+                    "errors": [],
+                }
+            ),
+            encoding="utf-8",
+        )
 
     def _post(self, path, payload, *, cookie=None, csrf=None, host=None, origin=None, content_type="application/json"):
         connection = self._connection()
@@ -550,6 +575,68 @@ class PendingWorkflowTests(unittest.TestCase):
         self.assertTrue(status_payload["pending"])
         self.assertEqual(len(status_payload["request"]["packages"]), 1)
         self.assertIsNone(status_payload["result"])
+
+    def test_config_submission_uses_exported_file_and_key_allow_list(self) -> None:
+        self._write_config_export()
+        cookie, csrf = self._get_session()
+        response = self._post(
+            "/api/pending/config",
+            {
+                "files": [
+                    {
+                        "path": "Example.cfg",
+                        "updates": [
+                            {
+                                "section": "General",
+                                "key": "Enabled",
+                                "value": "false",
+                            }
+                        ],
+                    }
+                ]
+            },
+            cookie=cookie,
+            csrf=csrf,
+            host=self.allowed_host,
+            origin=f"http://{self.allowed_host}",
+        )
+        self.assertEqual(response.status, 202)
+        request = pending.read_pending_request(self.pending_directory, pending.CONFIG_REQUEST_FILE)
+        self.assertEqual(request["files"][0]["updates"][0]["value"], "false")
+        self.assertEqual(audit.read_recent_events(self.audit_directory)[-1]["action"], "config_submit")
+
+        connection = self._connection()
+        connection.request("GET", "/api/mod-configs")
+        config_response = connection.getresponse()
+        self.assertEqual(config_response.status, 200)
+        self.assertEqual(json.loads(config_response.read())["files"][0]["path"], "Example.cfg")
+
+    def test_config_submission_rejects_unknown_exported_key(self) -> None:
+        self._write_config_export()
+        cookie, csrf = self._get_session()
+        response = self._post(
+            "/api/pending/config",
+            {
+                "files": [
+                    {
+                        "path": "Example.cfg",
+                        "updates": [
+                            {
+                                "section": "General",
+                                "key": "NotEnabled",
+                                "value": "false",
+                            }
+                        ],
+                    }
+                ]
+            },
+            cookie=cookie,
+            csrf=csrf,
+            host=self.allowed_host,
+            origin=f"http://{self.allowed_host}",
+        )
+        self.assertEqual(response.status, 400)
+        self.assertFalse((self.pending_directory / pending.CONFIG_REQUEST_FILE).exists())
 
     def test_rollback_requires_exact_confirmation_text(self) -> None:
         cookie, csrf = self._get_session()

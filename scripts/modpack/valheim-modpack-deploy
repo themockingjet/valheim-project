@@ -84,6 +84,7 @@ install -o root -g valheim -m 0750 "$SCRIPTS_ROOT/valheim-modpack" \
 install -o root -g root -m 0755 \
     "$SCRIPTS_ROOT/valheim-maintenance" \
     "$SCRIPTS_ROOT/valheim-manifest-apply" \
+    "$SCRIPTS_ROOT/valheim-config-apply" \
     "$SCRIPTS_ROOT/valheim-update-request" \
     "$SCRIPTS_ROOT/valheim-rollback-request" \
     "$SCRIPTS_ROOT/valheim-world-backup-inventory" \

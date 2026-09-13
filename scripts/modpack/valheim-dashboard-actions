@@ -13,6 +13,7 @@ fi
 
 for helper in \
     valheim-manifest-apply \
+    valheim-config-apply \
     valheim-update-request \
     valheim-rollback-request \
     valheim-world-restore; do

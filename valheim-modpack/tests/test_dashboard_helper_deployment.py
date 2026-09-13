@@ -17,6 +17,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
     def test_shell_scripts_parse_and_deployer_has_safe_enable_gate(self) -> None:
         scripts = (
             "valheim-manifest-apply",
+            "valheim-config-apply",
             "valheim-update-request",
             "valheim-rollback-request",
             "valheim-world-restore",
@@ -36,6 +37,7 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         )
         for request in (
             "manifest-request.json",
+            "config-request.json",
             "update-request.json",
             "rollback-request.json",
             "world-restore-request.json",

@@ -135,6 +135,270 @@ function ManifestEditorState({ children }) {
   )
 }
 
+function ModConfigEditorState({ children }) {
+  return (
+    <section className="panel actions-panel" aria-labelledby="mod-config-editor-heading">
+      <div className="section-heading">
+        <div>
+          <p className="section-eyebrow">Queue for next maintenance</p>
+          <h2 id="mod-config-editor-heading">Mod configuration</h2>
+        </div>
+        <p className="section-description">
+          Edit managed BepInEx settings. Saved overrides are included only when the next scheduled
+          maintenance run stages a new release.
+        </p>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function configEntryKey(entry) {
+  return `${entry.section}\u0000${entry.key}`
+}
+
+function configFieldId(entry) {
+  return `mod-config-${encodeURIComponent(entry.section)}-${encodeURIComponent(entry.key)}`
+}
+
+function isConfigExport(value) {
+  return (
+    value?.schema_version === 1 &&
+    Array.isArray(value.files) &&
+    Array.isArray(value.errors) &&
+    value.files.every(
+      (file) =>
+        typeof file?.path === 'string' &&
+        Array.isArray(file.entries) &&
+        file.entries.every(
+          (entry) =>
+            typeof entry?.section === 'string' &&
+            typeof entry?.key === 'string' &&
+            typeof entry?.value === 'string',
+        ),
+    )
+  )
+}
+
+function groupedConfigEntries(entries) {
+  return entries.reduce((sections, entry) => {
+    const current = sections.get(entry.section) ?? []
+    current.push(entry)
+    sections.set(entry.section, current)
+    return sections
+  }, new Map())
+}
+
+export function ModConfigEditor({ csrfToken }) {
+  const [refreshToken, setRefreshToken] = useState(0)
+  const [configExport, setConfigExport] = useState(null)
+  const [configError, setConfigError] = useState('')
+  const { status } = usePendingStatus('/api/pending/config', refreshToken)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function load() {
+      setConfigError('')
+      try {
+        const response = await fetch('/api/mod-configs', { signal: controller.signal })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok || !isConfigExport(payload)) {
+          throw new Error(payload?.error?.message ?? 'Mod configuration is unavailable.')
+        }
+        setConfigExport(payload)
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setConfigExport(null)
+          setConfigError(
+            error instanceof Error ? error.message : 'Mod configuration is unavailable.',
+          )
+        }
+      }
+    }
+
+    load()
+    return () => controller.abort()
+  }, [refreshToken])
+
+  if (configError) {
+    return (
+      <ModConfigEditorState>
+        <p className="action-result error">{configError}</p>
+      </ModConfigEditorState>
+    )
+  }
+  if (configExport === null || status.state === 'loading') {
+    return (
+      <ModConfigEditorState>
+        <p className="action-result muted">Loading managed configuration…</p>
+      </ModConfigEditorState>
+    )
+  }
+  if (status.state === 'error') {
+    return (
+      <ModConfigEditorState>
+        <p className="action-result error">
+          The queued configuration request could not be loaded. Configuration changes are disabled
+          to avoid replacing it.
+        </p>
+      </ModConfigEditorState>
+    )
+  }
+  if (status.pending && !Array.isArray(status.request?.files)) {
+    return (
+      <ModConfigEditorState>
+        <p className="action-result error">
+          The queued configuration request is invalid. Configuration changes are disabled to avoid
+          replacing it.
+        </p>
+      </ModConfigEditorState>
+    )
+  }
+  if (configExport.files.length === 0) {
+    return (
+      <ModConfigEditorState>
+        <p className="action-result muted">No managed BepInEx configuration files are available.</p>
+        {configExport.errors.map((error) => (
+          <p className="action-result error" key={error.path}>
+            {error.path}: {error.message}
+          </p>
+        ))}
+      </ModConfigEditorState>
+    )
+  }
+
+  return (
+    <ModConfigDraftEditor
+      key={JSON.stringify(configExport.files)}
+      csrfToken={csrfToken}
+      files={configExport.files}
+      pendingStatus={status}
+      errors={configExport.errors}
+      onQueued={() => setRefreshToken((current) => current + 1)}
+    />
+  )
+}
+
+function ModConfigDraftEditor({ csrfToken, files, pendingStatus, errors, onQueued }) {
+  const [selectedPath, setSelectedPath] = useState(files[0].path)
+  const selectedFile = files.find((file) => file.path === selectedPath) ?? files[0]
+  const [values, setValues] = useState(() =>
+    Object.fromEntries(selectedFile.entries.map((entry) => [configEntryKey(entry), entry.value])),
+  )
+  const [submitError, setSubmitError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const sections = groupedConfigEntries(selectedFile.entries)
+  const updates = selectedFile.entries
+    .filter((entry) => values[configEntryKey(entry)] !== entry.value)
+    .map((entry) => ({
+      section: entry.section,
+      key: entry.key,
+      value: values[configEntryKey(entry)],
+    }))
+
+  const selectFile = (path) => {
+    const file = files.find((candidate) => candidate.path === path)
+    if (!file) {
+      return
+    }
+    setSelectedPath(path)
+    setValues(Object.fromEntries(file.entries.map((entry) => [configEntryKey(entry), entry.value])))
+    setSubmitError('')
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    setSubmitError('')
+    setSubmitting(true)
+    try {
+      await submitPendingAction(
+        '/api/pending/config',
+        { files: [{ path: selectedFile.path, updates }] },
+        csrfToken,
+      )
+      onQueued()
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Configuration submission failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <ModConfigEditorState>
+      <form onSubmit={submit} className="config-form">
+        <label htmlFor="mod-config-file">Configuration file</label>
+        <select
+          id="mod-config-file"
+          value={selectedFile.path}
+          onChange={(event) => selectFile(event.target.value)}
+          disabled={pendingStatus.pending || submitting}
+        >
+          {files.map((file) => (
+            <option key={file.path} value={file.path}>
+              {file.path}
+            </option>
+          ))}
+        </select>
+        {selectedFile.entries.length === 0 ? (
+          <p className="action-result muted">
+            This file has no standard BepInEx section/key assignments to edit.
+          </p>
+        ) : (
+          [...sections.entries()].map(([section, entries]) => (
+            <fieldset className="config-section" key={section}>
+              <legend>{section}</legend>
+              {entries.map((entry) => {
+                const fieldId = configFieldId(entry)
+                return (
+                  <label className="config-entry" htmlFor={fieldId} key={configEntryKey(entry)}>
+                    <span>{entry.key}</span>
+                    <input
+                      id={fieldId}
+                      value={values[configEntryKey(entry)]}
+                      onChange={(event) =>
+                        setValues((current) => ({
+                          ...current,
+                          [configEntryKey(entry)]: event.target.value,
+                        }))
+                      }
+                      maxLength={2048}
+                      disabled={pendingStatus.pending || submitting}
+                    />
+                  </label>
+                )
+              })}
+            </fieldset>
+          ))
+        )}
+        <div className="manifest-form-actions">
+          <button
+            type="submit"
+            className="primary"
+            disabled={
+              pendingStatus.pending ||
+              submitting ||
+              !csrfToken ||
+              selectedFile.entries.length === 0 ||
+              updates.length === 0
+            }
+          >
+            {submitting ? 'Submitting…' : 'Queue configuration for maintenance'}
+          </button>
+        </div>
+      </form>
+      {errors.map((error) => (
+        <p className="action-result error" key={error.path}>
+          {error.path}: {error.message}
+        </p>
+      ))}
+      {submitError && <p className="action-result error">{submitError}</p>}
+      <ActionResult status={pendingStatus} />
+    </ModConfigEditorState>
+  )
+}
+
 export function ManifestEditor({ csrfToken, manifestPackages }) {
   const [refreshToken, setRefreshToken] = useState(0)
   const { status } = usePendingStatus('/api/pending/manifest', refreshToken)

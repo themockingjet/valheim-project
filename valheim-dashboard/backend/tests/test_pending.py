@@ -111,6 +111,56 @@ class ManifestValidationTests(unittest.TestCase):
             pending.build_manifest_request(["not", "an", "object"])
 
 
+class ConfigValidationTests(unittest.TestCase):
+    def test_normalizes_a_bounded_config_update_request(self) -> None:
+        result = pending.build_config_request(
+            {
+                "files": [
+                    {
+                        "path": "Author/Example.cfg",
+                        "updates": [
+                            {"section": "General", "key": "Enabled", "value": "false"}
+                        ],
+                    }
+                ]
+            }
+        )
+        self.assertEqual(result["files"][0]["path"], "Author/Example.cfg")
+        self.assertEqual(result["files"][0]["updates"][0]["value"], "false")
+
+    def test_rejects_unsafe_config_paths_and_multiline_values(self) -> None:
+        with self.assertRaisesRegex(pending.ValidationError, "path is invalid"):
+            pending.build_config_request(
+                {
+                    "files": [
+                        {
+                            "path": "../Example.cfg",
+                            "updates": [
+                                {"section": "General", "key": "Enabled", "value": "false"}
+                            ],
+                        }
+                    ]
+                }
+            )
+        with self.assertRaisesRegex(pending.ValidationError, "is invalid"):
+            pending.build_config_request(
+                {
+                    "files": [
+                        {
+                            "path": "Example.cfg",
+                            "updates": [
+                                {
+                                    "section": "General",
+                                    "key": "Enabled",
+                                    "value": "false\ntrue",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            )
+
+
 class UpdateAndRollbackValidationTests(unittest.TestCase):
     def test_update_requires_exact_confirmation(self) -> None:
         with self.assertRaises(pending.ValidationError):

@@ -1,0 +1,70 @@
+#!/bin/bash
+# Root-owned helper that consumes one dashboard configuration request and
+# writes only managed BepInEx config overrides for a future maintenance run.
+set -Eeuo pipefail
+
+readonly MODPACK_ROOT=/opt/valheim/modpack
+readonly MODPACK_CLI="$MODPACK_ROOT/bin/valheim-modpack"
+readonly PENDING_DIRECTORY=/var/lib/valheim-dashboard/pending
+readonly STATE_DIRECTORY=/var/lib/valheim-dashboard/state
+readonly PENDING_REQUEST="$PENDING_DIRECTORY/config-request.json"
+readonly RESULT_FILE="$STATE_DIRECTORY/config-result.json"
+readonly STAGED_REQUEST="$MODPACK_ROOT/pending-config-request.json"
+
+log() {
+    printf 'valheim-config-apply event=%s %s\n' "$1" "${2:-}"
+}
+
+write_result() {
+    local outcome=$1 message=${2:-} extra=${3:-}
+    install -d -o root -g valheim-ui -m 0750 "$STATE_DIRECTORY"
+    local temporary
+    temporary=$(mktemp "$STATE_DIRECTORY/.config-result.XXXXXX")
+    if [[ -n "$extra" ]]; then
+        printf '{"outcome":"%s","message":"%s",%s}\n' "$outcome" "$message" "$extra" >"$temporary"
+    else
+        printf '{"outcome":"%s","message":"%s"}\n' "$outcome" "$message" >"$temporary"
+    fi
+    chmod 0640 "$temporary"
+    chown root:valheim-ui "$temporary"
+    mv -Tf -- "$temporary" "$RESULT_FILE"
+}
+
+if [[ ! -f "$PENDING_REQUEST" ]]; then
+    log skipped 'reason=no_pending_request'
+    exit 0
+fi
+trap 'rm -f -- "$STAGED_REQUEST" "$PENDING_REQUEST"' EXIT
+
+install -o root -g valheim -m 0640 "$PENDING_REQUEST" "$STAGED_REQUEST"
+if output=$(/usr/sbin/runuser -u valheim -- "$MODPACK_CLI" apply-pending-config \
+    --request "$STAGED_REQUEST" 2>&1); then
+    if updated_files=$(printf '%s' "$output" | /usr/bin/python3 -c '
+import json
+import sys
+
+value = json.load(sys.stdin).get("updated_files")
+if not isinstance(value, list) or not 1 <= len(value) <= 50:
+    raise SystemExit(1)
+for entry in value:
+    if not isinstance(entry, dict) or set(entry) != {"path", "updated_keys"}:
+        raise SystemExit(1)
+    if not isinstance(entry["path"], str) or not entry["path"]:
+        raise SystemExit(1)
+    if not isinstance(entry["updated_keys"], int) or isinstance(entry["updated_keys"], bool):
+        raise SystemExit(1)
+    if not 1 <= entry["updated_keys"] <= 500:
+        raise SystemExit(1)
+print(json.dumps(value, separators=(",", ":")))
+' 2>/dev/null); then
+        log succeeded "updated_files=$(printf '%s' "$updated_files" | /usr/bin/python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+        write_result success 'Configuration queued for the next scheduled maintenance run.' \
+            "\"updated_files\":$updated_files"
+    else
+        log failed 'reason=invalid_cli_result'
+        write_result failed 'The configuration request completed without a valid result summary.'
+    fi
+else
+    log failed 'reason=validation_failed'
+    write_result rejected 'The configuration request failed independent validation.'
+fi

@@ -12,7 +12,7 @@ import threading
 import time
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import audit, hexium_catalog, pending, world_backups
+from . import audit, hexium_catalog, mod_configs, pending, world_backups
 from .security import (
     RequestRejected,
     SessionStore,
@@ -30,6 +30,7 @@ PENDING_DIRECTORY = Path("/var/lib/valheim-dashboard/pending")
 STATE_DIRECTORY = Path("/var/lib/valheim-dashboard/state")
 AUDIT_DIRECTORY = Path("/var/lib/valheim-dashboard/audit")
 WORLD_BACKUP_EXPORT_PATH = Path("/var/lib/valheim-dashboard/exports/world-backups.json")
+MOD_CONFIG_EXPORT_PATH = Path("/var/lib/valheim-dashboard/exports/mod-configs.json")
 MAX_REQUEST_BODY_BYTES = 64 * 1024
 STATUS_EVENT_POLL_SECONDS = 2
 STATUS_EVENT_HEARTBEAT_SECONDS = 15
@@ -41,6 +42,12 @@ PENDING_ACTIONS = {
         pending.MANIFEST_RESULT_FILE,
         pending.build_manifest_request,
         "manifest_submit",
+    ),
+    "config": (
+        pending.CONFIG_REQUEST_FILE,
+        pending.CONFIG_RESULT_FILE,
+        pending.build_config_request,
+        "config_submit",
     ),
     "update": (
         pending.UPDATE_REQUEST_FILE,
@@ -74,6 +81,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     state_directory = STATE_DIRECTORY
     audit_directory = AUDIT_DIRECTORY
     world_backup_path = WORLD_BACKUP_EXPORT_PATH
+    mod_config_path = MOD_CONFIG_EXPORT_PATH
     package_catalog: hexium_catalog.HexiumCatalog = hexium_catalog.HexiumCatalog()
     allowed_host = HOST + ":" + str(PORT)
     session_store: SessionStore = SessionStore()
@@ -102,6 +110,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/world-backups":
             self._send_world_backups()
             return
+        if path == "/api/mod-configs":
+            self._send_mod_configs()
+            return
         if path == "/api/hexium/search":
             self._send_hexium_search(urlsplit(self.path).query)
             return
@@ -113,6 +124,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if path in {
             "/api/pending/manifest",
+            "/api/pending/config",
             "/api/pending/update",
             "/api/pending/rollback",
             "/api/pending/world-restore",
@@ -146,6 +158,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path in {
             "/api/pending/manifest",
+            "/api/pending/config",
             "/api/pending/update",
             "/api/pending/rollback",
             "/api/pending/world-restore",
@@ -316,6 +329,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _send_mod_configs(self) -> None:
+        try:
+            config_export = mod_configs.load_config_export(self.mod_config_path)
+        except mod_configs.ConfigSnapshotError as error:
+            self._send_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": {"code": error.code, "message": str(error)}},
+            )
+            return
+        self._send_json(HTTPStatus.OK, config_export)
+
     def _handle_pending_submit(self, action: str) -> None:
         request_file, _result_file, builder, audit_action = PENDING_ACTIONS[action]
         session = self.session_store.get(parse_session_cookie(self.headers.get("Cookie")))
@@ -345,6 +369,26 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 {"error": {"code": "validation_failed", "message": str(error)}},
             )
             return
+
+        if action == "config":
+            try:
+                config_export = mod_configs.load_config_export(self.mod_config_path)
+            except mod_configs.ConfigSnapshotError as error:
+                self._record_audit(audit_action, "rejected", str(error))
+                self._send_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": {"code": error.code, "message": str(error)}},
+                )
+                return
+            try:
+                mod_configs.validate_request_targets(normalized, config_export)
+            except mod_configs.ConfigSnapshotError as error:
+                self._record_audit(audit_action, "rejected", str(error))
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": {"code": "validation_failed", "message": str(error)}},
+                )
+                return
 
         with self.pending_lock:
             try:
@@ -468,6 +512,7 @@ def create_server(
     state_directory: Path = STATE_DIRECTORY,
     audit_directory: Path = AUDIT_DIRECTORY,
     world_backup_path: Path = WORLD_BACKUP_EXPORT_PATH,
+    mod_config_path: Path = MOD_CONFIG_EXPORT_PATH,
     package_catalog: hexium_catalog.HexiumCatalog | None = None,
     allowed_host: str | None = None,
     port: int = PORT,
@@ -486,6 +531,7 @@ def create_server(
     RequestHandler.state_directory = state_directory
     RequestHandler.audit_directory = audit_directory
     RequestHandler.world_backup_path = world_backup_path
+    RequestHandler.mod_config_path = mod_config_path
     RequestHandler.package_catalog = package_catalog or hexium_catalog.HexiumCatalog()
     RequestHandler.allowed_host = allowed_host or default_allowed_host()
     RequestHandler.session_store = SessionStore()

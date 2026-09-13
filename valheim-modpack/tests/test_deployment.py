@@ -92,6 +92,67 @@ class DeploymentTests(unittest.TestCase):
                 "preserved",
             )
 
+    def test_stages_flat_mod_archive(self) -> None:
+        base = self.base_archive()
+        mod = archive_bytes(
+            {
+                "Example.dll": b"mod",
+                "README.md": b"documentation",
+                "manifest.json": b"{}",
+            }
+        )
+        packages = [
+            locked("denikson", "BepInExPack_Valheim", "5.4.2350", base),
+            locked("Author", "ExampleMod", "1.0.0", mod),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release = stage_release(
+                packages,
+                releases_directory=root / "releases",
+                cache_directory=root / "cache",
+                config_overrides=root / "config-overrides",
+                client=FakeClient(
+                    {
+                        package.download_url: archive
+                        for package, archive in zip(packages, (base, mod))
+                    }
+                ),
+            )
+
+            self.assertEqual(
+                (release / "BepInEx/plugins/Author-ExampleMod-1.0.0/Example.dll").read_bytes(),
+                b"mod",
+            )
+
+    def test_rejects_metadata_only_mod_archive(self) -> None:
+        base = self.base_archive()
+        mod = archive_bytes(
+            {
+                "README.md": b"documentation",
+                "manifest.json": b"{}",
+            }
+        )
+        packages = [
+            locked("denikson", "BepInExPack_Valheim", "5.4.2350", base),
+            locked("Author", "ExampleMod", "1.0.0", mod),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(ModpackError, "Cannot identify package payload root"):
+                stage_release(
+                    packages,
+                    releases_directory=root / "releases",
+                    cache_directory=root / "cache",
+                    config_overrides=root / "config-overrides",
+                    client=FakeClient(
+                        {
+                            package.download_url: archive
+                            for package, archive in zip(packages, (base, mod))
+                        }
+                    ),
+                )
+
     def test_rejects_checksum_mismatch(self) -> None:
         base = self.base_archive()
         package = locked("denikson", "BepInExPack_Valheim", "5.4.2350", base)

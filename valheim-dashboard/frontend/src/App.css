@@ -225,6 +225,54 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.config-form {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.config-form > label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.config-form > select,
+.config-entry input {
+  width: 100%;
+  min-height: 2.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.55rem;
+  background: rgb(9 18 28 / 0.75);
+  color: var(--text-strong);
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+}
+
+.config-section {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+}
+
+.config-section legend {
+  padding: 0 0.35rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.config-entry {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
 .stale-banner {
   display: flex;
   align-items: flex-start;

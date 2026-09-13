@@ -156,13 +156,17 @@ def _extract_archive(archive_path: Path, destination: Path) -> None:
 
 
 def _payload_root(extraction: Path) -> Path:
-    """Select the one package root while ignoring package metadata files."""
+    """Select a package root, accepting flat plugin DLL archives."""
 
     if (extraction / "BepInEx").is_dir() or (extraction / "plugins").is_dir():
         return extraction
     directories = [path for path in extraction.iterdir() if path.is_dir()]
     if len(directories) == 1:
         return directories[0]
+    if any(
+        path.is_file() and path.suffix.lower() == ".dll" for path in extraction.iterdir()
+    ):
+        return extraction
     raise ModpackError(f"Cannot identify package payload root in {extraction.name}")
 
 

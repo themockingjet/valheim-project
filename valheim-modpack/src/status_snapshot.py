@@ -14,11 +14,13 @@ import tempfile
 import time
 from typing import Any, Sequence
 
+from src.config_overrides import publish_config_export
 from src.errors import ModpackError
 from src.manifest import load_manifest
 
 DEFAULT_MODPACK_ROOT = Path("/opt/valheim/modpack")
 DEFAULT_OUTPUT = Path("/var/lib/valheim-dashboard/exports/status.json")
+DEFAULT_CONFIG_OUTPUT = Path("/var/lib/valheim-dashboard/exports/mod-configs.json")
 DEFAULT_MAINTENANCE_STATE = Path("/var/lib/valheim-dashboard/maintenance-state.json")
 SERVER_LOG = Path("/opt/valheim/logs/valheim.log")
 MAINTENANCE_UNIT = "valheim-restart.service"
@@ -419,6 +421,7 @@ def publish_snapshot(snapshot: dict[str, Any], output: Path = DEFAULT_OUTPUT) ->
 def publish(
     *,
     output: Path = DEFAULT_OUTPUT,
+    config_output: Path | None = None,
     modpack_root: Path = DEFAULT_MODPACK_ROOT,
     maintenance_state: Path = DEFAULT_MAINTENANCE_STATE,
 ) -> None:
@@ -431,11 +434,21 @@ def publish(
         ),
         output,
     )
+    if config_output is None and output == DEFAULT_OUTPUT:
+        config_output = DEFAULT_CONFIG_OUTPUT
+    if config_output is not None:
+        group_id = (
+            grp.getgrnam("valheim-ui").gr_gid
+            if config_output == DEFAULT_CONFIG_OUTPUT
+            else None
+        )
+        publish_config_export(modpack_root, config_output, group_id=group_id)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--config-output", type=Path, default=DEFAULT_CONFIG_OUTPUT)
     parser.add_argument("--modpack-root", type=Path, default=DEFAULT_MODPACK_ROOT)
     parser.add_argument("--maintenance-state", type=Path, default=DEFAULT_MAINTENANCE_STATE)
     parser.add_argument(
@@ -460,6 +473,7 @@ def main() -> int:
         )
     publish(
         output=arguments.output,
+        config_output=arguments.config_output,
         modpack_root=arguments.modpack_root,
         maintenance_state=arguments.maintenance_state,
     )

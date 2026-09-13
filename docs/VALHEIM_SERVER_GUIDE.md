@@ -112,10 +112,20 @@ make enable-dashboard-actions
 ```
 
 This command refuses to enable the watcher while a request is pending. The
-single `valheim-dashboard-actions.path` watcher serializes the four fixed
-manifest, restart, rollback, and world-restore requests. Each root helper
-re-validates its request and writes only a bounded result for `valheim-ui` to
-read.
+single `valheim-dashboard-actions.path` watcher serializes the five fixed
+manifest, configuration, restart, rollback, and world-restore requests. Each
+root helper re-validates its request and writes only a bounded result for
+`valheim-ui` to read.
+
+The dashboard configuration editor lists existing regular BepInEx `.cfg`
+files in the active modpack release or its managed override directory. It
+edits only existing `[section]` / `key = value` settings and writes queued
+overrides under `/opt/valheim/modpack/config-overrides`; it never changes the
+active release or restarts the server. The next scheduled maintenance run
+copies these overrides into the newly staged release. Comments and
+unrecognized configuration lines are retained. Configuration values are
+available through the localhost-only same-origin dashboard API, so grant
+dashboard access only to trusted operators.
 
 ## Installed systemd templates
 

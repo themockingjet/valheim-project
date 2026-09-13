@@ -14,6 +14,7 @@ AUDIT_FILE_NAME = "audit.json"
 
 ALLOWED_ACTIONS = {
     "manifest_submit",
+    "config_submit",
     "update_request",
     "rollback_request",
     "world_restore_request",

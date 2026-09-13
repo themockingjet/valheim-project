@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 
+from .config_overrides import apply_config_request
 from .deployment import activate_release, load_lock, rollback, stage_release
 from .errors import ModpackError
 from .hexium import HexiumClient
@@ -171,6 +172,26 @@ def _apply_pending_manifest_command(arguments: argparse.Namespace) -> int:
             client=HexiumClient(),
         )
         print(json.dumps(result.to_dict(), sort_keys=True))
+        return 0
+    finally:
+        lock_file.close()
+
+
+def _apply_pending_config_command(arguments: argparse.Namespace) -> int:
+    """Validate and persist dashboard configuration overrides for maintenance."""
+
+    lock_file = _with_lock(arguments.root)
+    try:
+        try:
+            request = json.loads(arguments.request.read_text(encoding="utf-8"))
+        except OSError as error:
+            raise ModpackError(f"Cannot read pending configuration request: {error}") from error
+        except json.JSONDecodeError as error:
+            raise ModpackError(
+                f"Pending configuration request is not valid JSON: {error}"
+            ) from error
+        result = apply_config_request(request, modpack_root=arguments.root)
+        print(json.dumps({"updated_files": result}, sort_keys=True))
         return 0
     finally:
         lock_file.close()
@@ -352,6 +373,13 @@ def build_parser() -> argparse.ArgumentParser:
     apply_pending_manifest_parser.add_argument("--cache", type=Path, default=DEFAULT_ROOT / "cache")
     apply_pending_manifest_parser.add_argument("--request", type=Path, required=True)
     apply_pending_manifest_parser.set_defaults(handler=_apply_pending_manifest_command)
+    apply_pending_config_parser = subparsers.add_parser(
+        "apply-pending-config",
+        help="validate and persist dashboard-originated configuration overrides",
+    )
+    apply_pending_config_parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    apply_pending_config_parser.add_argument("--request", type=Path, required=True)
+    apply_pending_config_parser.set_defaults(handler=_apply_pending_config_command)
     gc_parser = subparsers.add_parser("gc", help="prune unreferenced archives and old releases")
     gc_parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     gc_parser.add_argument("--cache", type=Path, default=DEFAULT_ROOT / "cache")

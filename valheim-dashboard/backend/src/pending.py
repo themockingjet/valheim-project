@@ -13,22 +13,28 @@ pending directory itself).
 from datetime import datetime, timezone
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import tempfile
 from typing import Any
 
 MANIFEST_REQUEST_FILE = "manifest-request.json"
+CONFIG_REQUEST_FILE = "config-request.json"
 UPDATE_REQUEST_FILE = "update-request.json"
 ROLLBACK_REQUEST_FILE = "rollback-request.json"
 WORLD_RESTORE_REQUEST_FILE = "world-restore-request.json"
 
 MANIFEST_RESULT_FILE = "manifest-result.json"
+CONFIG_RESULT_FILE = "config-result.json"
 UPDATE_RESULT_FILE = "update-result.json"
 ROLLBACK_RESULT_FILE = "rollback-result.json"
 WORLD_RESTORE_RESULT_FILE = "world-restore-result.json"
 
 MAX_PACKAGES = 50
+MAX_CONFIG_FILES = 50
+MAX_CONFIG_UPDATES = 500
+MAX_CONFIG_VALUE_CHARACTERS = 2 * 1024
+MAX_CONFIG_REQUEST_BYTES = 48 * 1024
 MAX_REASON_CHARACTERS = 200
 MAX_RESULT_BYTES = 64 * 1024
 
@@ -36,6 +42,7 @@ NAMESPACE_PATTERN = re.compile(r"^[A-Za-z0-9_]{1,64}\Z")
 NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}\Z")
 VERSION_PATTERN = re.compile(r"^(latest|[A-Za-z0-9][A-Za-z0-9.+-]{0,63})\Z")
 WORLD_BACKUP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{22,64}\Z")
+CONFIG_PATH_PART_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 
 
 class ValidationError(ValueError):
@@ -121,6 +128,91 @@ def build_manifest_request(payload: object) -> dict[str, Any]:
         "requested_at": _now_iso(),
         "packages": packages,
     }
+
+
+def _validate_config_path(value: object) -> str:
+    if not isinstance(value, str):
+        raise ValidationError("configuration path is invalid")
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or len(path.parts) > 4
+        or any(CONFIG_PATH_PART_PATTERN.fullmatch(part) is None for part in path.parts)
+        or not path.name.endswith(".cfg")
+    ):
+        raise ValidationError("configuration path is invalid")
+    return path.as_posix()
+
+
+def build_config_request(payload: object) -> dict[str, Any]:
+    body = _require_mapping(payload, "request body")
+    if set(body) != {"files"}:
+        raise ValidationError("request body has an unsupported field")
+    files = body["files"]
+    if not isinstance(files, list) or not files or len(files) > MAX_CONFIG_FILES:
+        raise ValidationError("files must be a non-empty bounded list")
+
+    normalized_files: list[dict[str, object]] = []
+    paths: set[str] = set()
+    update_count = 0
+    for file_index, file in enumerate(files):
+        entry = _require_mapping(file, f"files[{file_index}]")
+        if set(entry) != {"path", "updates"}:
+            raise ValidationError(f"files[{file_index}] has an unsupported field")
+        path = _validate_config_path(entry["path"])
+        if path in paths:
+            raise ValidationError(f"files[{file_index}] duplicates an earlier file")
+        paths.add(path)
+        updates = entry["updates"]
+        if not isinstance(updates, list) or not updates:
+            raise ValidationError(f"files[{file_index}].updates must be a non-empty list")
+        normalized_updates: list[dict[str, str]] = []
+        identities: set[tuple[str, str]] = set()
+        for update_index, update in enumerate(updates):
+            item = _require_mapping(update, f"files[{file_index}].updates[{update_index}]")
+            if set(item) != {"section", "key", "value"}:
+                raise ValidationError(
+                    f"files[{file_index}].updates[{update_index}] has an unsupported field"
+                )
+            section = item["section"]
+            key = item["key"]
+            value = item["value"]
+            if (
+                not isinstance(section, str)
+                or not section
+                or len(section) > 128
+                or "\r" in section
+                or "\n" in section
+                or not isinstance(key, str)
+                or not key
+                or len(key) > 128
+                or "\r" in key
+                or "\n" in key
+                or not isinstance(value, str)
+                or len(value) > MAX_CONFIG_VALUE_CHARACTERS
+                or "\r" in value
+                or "\n" in value
+            ):
+                raise ValidationError(f"files[{file_index}].updates[{update_index}] is invalid")
+            identity = (section, key)
+            if identity in identities:
+                raise ValidationError(f"files[{file_index}].updates duplicates an earlier key")
+            identities.add(identity)
+            normalized_updates.append({"section": section, "key": key, "value": value})
+            update_count += 1
+            if update_count > MAX_CONFIG_UPDATES:
+                raise ValidationError(f"files must not exceed {MAX_CONFIG_UPDATES} updates")
+        normalized_files.append({"path": path, "updates": normalized_updates})
+
+    request = {
+        "schema_version": 1,
+        "requested_at": _now_iso(),
+        "files": normalized_files,
+    }
+    if len(json.dumps(request, separators=(",", ":")).encode("utf-8")) > MAX_CONFIG_REQUEST_BYTES:
+        raise ValidationError("configuration request body is too large")
+    return request
 
 
 def _validate_reason(value: object) -> str:

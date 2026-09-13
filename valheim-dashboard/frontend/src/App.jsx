@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AuditTrail,
   ManifestEditor,
+  ModConfigEditor,
   RollbackAction,
   UpdateAction,
   WorldBackupManager,
@@ -703,6 +704,7 @@ function App() {
         csrfToken={csrfToken}
         manifestPackages={status.state === 'ready' ? status.data.modpack.manifest_packages : undefined}
       />
+      <ModConfigEditor csrfToken={csrfToken} />
       <div className="content-grid">
         <UpdateAction csrfToken={csrfToken} />
         <RollbackAction csrfToken={csrfToken} />
