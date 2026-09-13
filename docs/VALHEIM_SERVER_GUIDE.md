@@ -95,7 +95,10 @@ sudo systemctl list-timers --all valheim-restart.timer
 
 The timer begins the scheduled restart announcement phase at 23:45 and 11:45
 in `Asia/Shanghai`. Players receive notices 15, 10, 5, 3, and 1 minutes before
-maintenance starts at 00:00 and 12:00. Its maintenance helper then stops
+maintenance starts at 00:00 and 12:00. Each countdown notice is sent three
+times, three seconds apart, to keep the directional world-text warning visible
+for longer; the final "starting now" notice is sent once so maintenance begins
+at the scheduled time. Its maintenance helper then stops
 Valheim, validates the SteamCMD install, stages and activates the reviewed
 modpack, and accepts only a new `Game server connected` marker before declaring
 success. It rolls the modpack back and restarts vanilla if an activation fails.

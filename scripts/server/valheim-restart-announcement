@@ -10,7 +10,19 @@ log() {
 }
 
 send() {
-    local payload=$1 response
+    local request_id=$1 message=$2 payload response
+    payload=$(/usr/bin/python3 - "$request_id" "$message" <<'PYTHON'
+import json
+import sys
+
+print(json.dumps({
+    "schema_version": 1,
+    "operation": "broadcast",
+    "id": sys.argv[1],
+    "message": sys.argv[2],
+}, separators=(",", ":")))
+PYTHON
+)
     response=$(/usr/bin/printf '%s' "$payload" | /usr/bin/nc -N -U "$SOCKET_PATH")
     if ! /usr/bin/printf '%s' "$response" | /usr/bin/python3 -c \
         'import json, sys; value = json.load(sys.stdin); raise SystemExit(0 if value.get("ok") is True else 1)'; then
@@ -19,20 +31,30 @@ send() {
     fi
 }
 
+send_burst() {
+    local warning_id=$1 message=$2 attempt
+    for attempt in 1 2 3; do
+        send "${warning_id}-${attempt}" "$message"
+        if (( attempt < 3 )); then
+            /usr/bin/sleep 3
+        fi
+    done
+}
+
 if [[ ! -S "$SOCKET_PATH" ]]; then
     log skipped 'reason=plugin_socket_unavailable'
     exit 0
 fi
 
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-15m","message":"Scheduled server restart begins in 15 minutes. Please move somewhere safe."}'
-/usr/bin/sleep 300
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-10m","message":"Scheduled server restart begins in 10 minutes. Please move somewhere safe."}'
-/usr/bin/sleep 300
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-5m","message":"Scheduled server restart begins in 5 minutes. Please move somewhere safe."}'
-/usr/bin/sleep 120
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-3m","message":"Scheduled server restart begins in 3 minutes. Please log out safely."}'
-/usr/bin/sleep 120
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-1m","message":"Scheduled server restart begins in 1 minute. Please log out safely."}'
-/usr/bin/sleep 60
-send '{"schema_version":1,"operation":"broadcast","id":"scheduled-restart-now","message":"Scheduled server restart is starting now."}'
+send_burst 'scheduled-restart-15m' 'Scheduled server restart begins in 15 minutes. Please move somewhere safe.'
+/usr/bin/sleep 294
+send_burst 'scheduled-restart-10m' 'Scheduled server restart begins in 10 minutes. Please move somewhere safe.'
+/usr/bin/sleep 294
+send_burst 'scheduled-restart-5m' 'Scheduled server restart begins in 5 minutes. Please move somewhere safe.'
+/usr/bin/sleep 114
+send_burst 'scheduled-restart-3m' 'Scheduled server restart begins in 3 minutes. Please log out safely.'
+/usr/bin/sleep 114
+send_burst 'scheduled-restart-1m' 'Scheduled server restart begins in 1 minute. Please log out safely.'
+/usr/bin/sleep 54
+send 'scheduled-restart-now' 'Scheduled server restart is starting now.'
 log completed

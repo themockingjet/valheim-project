@@ -146,10 +146,14 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
                     f"{'' if minutes == 1 else 's'}.",
                     announcer,
                 )
+                self.assertIn(f"send_burst 'scheduled-restart-{minutes}m'", announcer)
         self.assertIn("scheduled-restart-now", announcer)
-        self.assertEqual(announcer.count("/usr/bin/sleep 300"), 2)
-        self.assertEqual(announcer.count("/usr/bin/sleep 120"), 2)
-        self.assertIn("/usr/bin/sleep 60", announcer)
+        self.assertIn('send "${warning_id}-${attempt}" "$message"', announcer)
+        self.assertIn("for attempt in 1 2 3", announcer)
+        self.assertEqual(announcer.count("/usr/bin/sleep 294"), 2)
+        self.assertEqual(announcer.count("/usr/bin/sleep 114"), 2)
+        self.assertIn("/usr/bin/sleep 54", announcer)
+        self.assertIn("send 'scheduled-restart-now'", announcer)
 
     def test_dashboard_deployer_requires_a_clean_root_revision(self) -> None:
         deployer = (
