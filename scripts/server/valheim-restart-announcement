@@ -10,20 +10,38 @@ log() {
 }
 
 send() {
-    local request_id=$1 message=$2 payload response
-    payload=$(/usr/bin/python3 - "$request_id" "$message" <<'PYTHON'
+    local request_id=$1 message=$2 response
+    response=$(/usr/bin/python3 - "$SOCKET_PATH" "$request_id" "$message" <<'PYTHON'
 import json
+import socket
 import sys
 
-print(json.dumps({
+socket_path, request_id, message = sys.argv[1:]
+payload = json.dumps({
     "schema_version": 1,
     "operation": "broadcast",
-    "id": sys.argv[1],
-    "message": sys.argv[2],
-}, separators=(",", ":")))
+    "id": request_id,
+    "message": message,
+}, separators=(",", ":")).encode("utf-8")
+
+client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+client.settimeout(5)
+try:
+    client.connect(socket_path)
+    client.sendall(payload)
+    client.shutdown(socket.SHUT_WR)
+    response = bytearray()
+    while True:
+        chunk = client.recv(4096)
+        if not chunk:
+            break
+        response.extend(chunk)
+finally:
+    client.close()
+
+print(response.decode("utf-8"))
 PYTHON
 )
-    response=$(/usr/bin/printf '%s' "$payload" | /usr/bin/nc -N -U "$SOCKET_PATH")
     if ! /usr/bin/printf '%s' "$response" | /usr/bin/python3 -c \
         'import json, sys; value = json.load(sys.stdin); raise SystemExit(0 if value.get("ok") is True else 1)'; then
         log failed 'reason=plugin_rejected_request'
