@@ -227,3 +227,17 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("io.hexium.valheim.lifecycleannouncer.cfg", deployer)
         self.assertIn("Path = /run/valheim/lifecycle-announcer.sock", config)
+
+    def test_deployer_seeds_the_discord_notifier_config_without_a_webhook(self) -> None:
+        deployer = (SCRIPTS / "valheim-modpack-deploy").read_text(encoding="utf-8")
+        config = (
+            PROJECT_ROOT
+            / "config"
+            / "modpack"
+            / "overrides"
+            / "io.hexium.valheim.discordnotifier.cfg"
+        ).read_text(encoding="utf-8")
+        self.assertIn("io.hexium.valheim.discordnotifier.cfg", deployer)
+        self.assertIn("DISCORD_NOTIFIER_ACTIVE", deployer)
+        self.assertIn("WebhookUrl =", config)
+        self.assertNotIn("https://discord.com/api/webhooks/", config)
