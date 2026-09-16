@@ -48,6 +48,12 @@ firewall/security group:
 make server-firewall
 ```
 
+Valheim uses UDP, not TCP, for its game traffic. The server listens on UDP
+ports 2456 and 2457, so VS Code's forwarded-port feature is not a suitable
+game tunnel. Use the server's reachable address with both UDP ports permitted,
+or connect through a VPN such as Tailscale, WireGuard, or ZeroTier. A browser
+or SSH TCP port forward to `127.0.0.1:2456` will not carry Valheim traffic.
+
 ## Provision the server
 
 From the repository root, run:
@@ -74,6 +80,42 @@ host-owned script is the authoritative Valheim command and contains the server
 name, world, password, port, public/crossplay choice, and any world modifiers.
 Keep it out of Git. The deployment kit's launcher only adds optional BepInEx
 environment variables before it executes that script.
+
+Create the restricted file, then edit the quoted placeholder values locally.
+Do not paste the server password into Git, chat, or command-line arguments:
+
+```bash
+sudo install -o valheim -g valheim -m 0700 /dev/null \
+  /opt/valheim/server/start_valheim_server.sh
+sudoedit /opt/valheim/server/start_valheim_server.sh
+```
+
+Use this structure:
+
+```bash
+#!/bin/bash
+set -Eeuo pipefail
+
+export SteamAppId=892970
+export LD_LIBRARY_PATH="/opt/valheim/server/linux64:${LD_LIBRARY_PATH:-}"
+
+exec /opt/valheim/server/valheim_server.x86_64 \
+  -nographics \
+  -batchmode \
+  -name "REPLACE_WITH_SERVER_NAME" \
+  -port 2456 \
+  -world "REPLACE_WITH_WORLD_NAME" \
+  -password "REPLACE_WITH_PRIVATE_PASSWORD" \
+  -savedir /opt/valheim/data \
+  -public 1
+```
+
+Add `-crossplay` only when crossplay is intended. Validate the host files
+without starting the service:
+
+```bash
+make assert-server-configured
+```
 
 ## Deploy dashboard and modpack
 

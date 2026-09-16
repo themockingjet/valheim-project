@@ -9,4 +9,4 @@ if [ -e /run/valheim-world-restore-starting ]; then
     exit 0
 fi
 
-exec /usr/bin/python3 /opt/valheim/modpack/lib/world_backups.py recover
+exec /usr/bin/python3 /opt/valheim/modpack/lib/src/world_backups.py recover

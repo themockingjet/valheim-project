@@ -3,4 +3,4 @@
 # it never copies, moves, deletes, starts, or stops any world or service.
 set -eu
 
-exec /usr/bin/python3 /opt/valheim/modpack/lib/world_backups.py inventory
+exec /usr/bin/python3 /opt/valheim/modpack/lib/src/world_backups.py inventory

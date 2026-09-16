@@ -3,7 +3,7 @@
 # contains only a root-issued opaque backup ID: never a caller-controlled path.
 set -Eeuo pipefail
 
-readonly WORLD_TOOL=/opt/valheim/modpack/lib/world_backups.py
+readonly WORLD_TOOL=/opt/valheim/modpack/lib/src/world_backups.py
 readonly PENDING_REQUEST=/var/lib/valheim-dashboard/pending/world-restore-request.json
 readonly STATE_DIRECTORY=/var/lib/valheim-dashboard/state
 readonly RESULT_FILE="$STATE_DIRECTORY/world-restore-result.json"

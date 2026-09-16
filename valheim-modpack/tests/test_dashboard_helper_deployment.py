@@ -81,6 +81,28 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         self.assertIn('cd -- "$MODPACK_LIBRARY"', maintenance)
         self.assertIn("/usr/bin/python3 -m src.status_snapshot", maintenance)
 
+    def test_world_backup_helpers_use_the_deployed_module_path(self) -> None:
+        deployed_module = "/opt/valheim/modpack/lib/src/world_backups.py"
+        for helper_name in (
+            "valheim-world-backup-inventory",
+            "valheim-world-restore",
+            "valheim-world-restore-recover",
+        ):
+            with self.subTest(helper=helper_name):
+                helper = (SCRIPTS / helper_name).read_text(encoding="utf-8")
+                self.assertIn(deployed_module, helper)
+
+    def test_inventory_failure_does_not_block_dashboard_action_deployment(self) -> None:
+        deployer = (SCRIPTS / "valheim-modpack-deploy").read_text(encoding="utf-8")
+        self.assertIn(
+            "world-backup inventory is unavailable; continuing without restore inventory",
+            deployer,
+        )
+        self.assertIn(
+            "if ! /usr/bin/systemctl start valheim-dashboard-world-backup-inventory.service; then",
+            deployer,
+        )
+
     def test_canonical_server_units_replace_modpack_drop_ins(self) -> None:
         server_unit = (SERVER_SYSTEMD / "valheim.service").read_text(encoding="utf-8")
         restart_unit = (SERVER_SYSTEMD / "valheim-restart.service").read_text(

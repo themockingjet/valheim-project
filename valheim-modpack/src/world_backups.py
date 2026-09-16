@@ -110,7 +110,7 @@ def _snapshot_metadata(path: Path) -> tuple[int, int]:
     return len(files), byte_count
 
 
-def _active_world(worlds_directory: Path) -> Path:
+def _active_world(worlds_directory: Path) -> Path | None:
     try:
         candidates = [
             entry
@@ -122,7 +122,9 @@ def _active_world(worlds_directory: Path) -> Path:
         ]
     except OSError as error:
         raise WorldBackupError("world directory is unavailable") from error
-    if len(candidates) != 1:
+    if not candidates:
+        return None
+    if len(candidates) > 1:
         raise WorldBackupError("exactly one active world directory is required")
     _snapshot_metadata(candidates[0])
     return candidates[0]
@@ -183,10 +185,44 @@ def _new_backup_id(entries: dict[str, dict[str, int | str]]) -> str:
             return backup_id
 
 
+def _unavailable_inventory() -> tuple[
+    dict[str, Any], dict[str, Path], dict[str, dict[str, int | str]]
+]:
+    return (
+        {
+            "schema_version": 1,
+            "generated_at": _now(),
+            "active_world": {
+                "file_count": 0,
+                "size_bytes": 0,
+                "integrity": "unavailable",
+            },
+            "native_retention": {"observed_count": 0},
+            "backups": [],
+        },
+        {},
+        {},
+    )
+
+
 def _inventory(
     worlds_directory: Path, index_path: Path
 ) -> tuple[dict[str, Any], dict[str, Path], dict[str, dict[str, int | str]]]:
-    active = _active_world(worlds_directory)
+    try:
+        worlds_status = worlds_directory.lstat()
+    except FileNotFoundError:
+        return _unavailable_inventory()
+    except OSError as error:
+        raise WorldBackupError("world directory is unavailable") from error
+    if not stat.S_ISDIR(worlds_status.st_mode) or stat.S_ISLNK(worlds_status.st_mode):
+        raise WorldBackupError("world directory is unsafe")
+
+    try:
+        active = _active_world(worlds_directory)
+    except WorldBackupError:
+        return _unavailable_inventory()
+    if active is None:
+        return _unavailable_inventory()
     active_files, active_bytes = _snapshot_metadata(active)
     prior_index = _load_index(index_path)
     next_index: dict[str, dict[str, int | str]] = {}

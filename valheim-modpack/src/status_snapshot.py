@@ -55,6 +55,13 @@ JOURNAL_ARGS = (
     "--output=cat",
     "--lines=100",
 )
+SERVER_JOURNAL_ARGS = (
+    "/usr/bin/journalctl",
+    "--unit=valheim.service",
+    "--no-pager",
+    "--output=cat",
+    "--lines=100",
+)
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 URL_PATTERN = re.compile(r"\b(?:https?|ftp)://[^\s]+", re.IGNORECASE)
 CHECKSUM_PATTERN = re.compile(r"\b[0-9a-fA-F]{64}\b")
@@ -117,6 +124,16 @@ def _command_lines(arguments: Sequence[str]) -> list[str]:
     if result is None or result.returncode != 0:
         return []
     return result.stdout.splitlines()[-MAX_LOG_ENTRIES:]
+
+
+def _server_log_lines(path: Path) -> list[str]:
+    lines = _read_log(path)
+    if lines or path != SERVER_LOG:
+        return lines
+    return [
+        _redact_log_line(line)[:MAX_LOG_ENTRY_CHARACTERS]
+        for line in _command_lines(SERVER_JOURNAL_ARGS)
+    ]
 
 
 def _command_properties(arguments: Sequence[str]) -> dict[str, str]:
@@ -404,7 +421,7 @@ def build_snapshot(
             "manifest_packages": _manifest_packages(modpack_root / "manifest.yaml"),
         },
         "logs": {
-            "server": _read_log(server_log),
+            "server": _server_log_lines(server_log),
             "maintenance": maintenance_lines[-MAX_LOG_ENTRIES:],
         },
     }

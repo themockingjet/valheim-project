@@ -52,6 +52,29 @@ class WorldBackupTests(unittest.TestCase):
         self.assertNotIn(self.backup.name, rendered)
         self.assertEqual(first["active_world"]["integrity"], "ready")
 
+    def test_inventory_reports_unavailable_before_the_first_world_exists(self) -> None:
+        self.active.rename(self.root / "active-away")
+        self.backup.rename(self.root / "backup-away")
+
+        inventory = self.publish()
+
+        self.assertEqual(
+            inventory["active_world"],
+            {"file_count": 0, "size_bytes": 0, "integrity": "unavailable"},
+        )
+        self.assertEqual(inventory["native_retention"]["observed_count"], 0)
+        self.assertEqual(inventory["backups"], [])
+
+    def test_inventory_reports_unavailable_before_worlds_directory_exists(self) -> None:
+        self.active.rename(self.root / "active-away")
+        self.backup.rename(self.root / "backup-away")
+        self.worlds.rmdir()
+
+        inventory = self.publish()
+
+        self.assertEqual(inventory["active_world"]["integrity"], "unavailable")
+        self.assertEqual(inventory["backups"], [])
+
     def test_incomplete_or_symlinked_backup_is_rejected(self) -> None:
         (self.backup / "_main.1.ok").unlink()
         with self.assertRaises(world_backups.WorldBackupError):
@@ -61,6 +84,15 @@ class WorldBackupTests(unittest.TestCase):
         (self.backup / "unsafe").symlink_to(self.active)
         with self.assertRaises(world_backups.WorldBackupError):
             self.publish()
+
+    def test_incomplete_active_world_publishes_unavailable_inventory(self) -> None:
+        (self.active / "_main.1.ok").unlink()
+
+        inventory = self.publish()
+
+        self.assertEqual(inventory["active_world"]["integrity"], "unavailable")
+        self.assertEqual(inventory["native_retention"]["observed_count"], 0)
+        self.assertEqual(inventory["backups"], [])
 
     def test_prepare_and_complete_restore_whole_directory(self) -> None:
         inventory = self.publish()

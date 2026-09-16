@@ -11,6 +11,7 @@ UV ?= $(DASHBOARD_HOME)/.local/bin/uv
 	server-prerequisites \
 	server-firewall \
 	assert-server-stopped \
+	assert-server-configured \
 	provision-server \
 	migrate-systemd \
 	dashboard-backend-test \
@@ -32,6 +33,7 @@ help:
 		'Bootstrap a new host:' \
 		'  make bootstrap                 Refuse an active server, then provision/deploy; leaves Valheim disabled.' \
 		'  make assert-server-stopped     Fail safely if Valheim is running.' \
+		'  make assert-server-configured  Verify the host startup script and server binary.' \
 		'  make migrate-systemd           Install canonical units and retire legacy kit-owned units without restart.' \
 		'  make server-firewall           Open the default Valheim Steam UDP ports in UFW.' \
 		'' \
@@ -64,6 +66,18 @@ assert-server-stopped:
 		exit 1; \
 	fi
 
+assert-server-configured:
+	@sudo -u valheim test -x /opt/valheim/server/valheim_server.x86_64 || { \
+		printf '%s\n' 'Valheim server binary is missing or is not executable; run make provision-server.' >&2; \
+		exit 1; \
+	}
+	@sudo -u valheim test -x /opt/valheim/server/start_valheim_server.sh || { \
+		printf '%s\n' \
+			'Missing executable /opt/valheim/server/start_valheim_server.sh.' \
+			'Create the host-owned server configuration described in docs/VALHEIM_SERVER_GUIDE.md.' >&2; \
+		exit 1; \
+	}
+
 provision-server:
 	sudo ./scripts/server/provision-valheim-server
 
@@ -92,8 +106,17 @@ deploy: validate
 	$(MAKE) deploy-dashboard
 	$(MAKE) deploy-modpack
 
-enable-server:
-	sudo systemctl enable --now valheim.service
+enable-server: assert-server-configured
+	@set -e; \
+	sudo systemctl enable valheim.service; \
+	sudo systemctl start valheim.service; \
+	sleep 2; \
+	if ! sudo systemctl is-active --quiet valheim.service; then \
+		sudo systemctl status valheim.service --no-pager -l || true; \
+		sudo systemctl disable --now valheim.service; \
+		printf '%s\n' 'Valheim failed its initial start; the service was disabled to prevent a restart loop.' >&2; \
+		exit 1; \
+	fi; \
 	sudo systemctl enable --now valheim-restart.timer
 
 enable-dashboard-actions:

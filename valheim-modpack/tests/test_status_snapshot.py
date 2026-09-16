@@ -182,6 +182,17 @@ packages:
         self.assertEqual(len(lines), 100)
         self.assertEqual(lines[0], "entry-100")
 
+    def test_server_log_falls_back_to_valheim_journal(self) -> None:
+        with patch.object(
+            status_snapshot,
+            "_command_lines",
+            return_value=["Game server connected"],
+        ) as command_lines:
+            lines = status_snapshot._server_log_lines(status_snapshot.SERVER_LOG)
+
+        command_lines.assert_called_once_with(status_snapshot.SERVER_JOURNAL_ARGS)
+        self.assertEqual(lines, ["Game server connected"])
+
 
 if __name__ == "__main__":
     with redirect_stdout(io.StringIO()):
