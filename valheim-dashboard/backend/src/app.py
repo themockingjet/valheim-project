@@ -2,6 +2,7 @@
 
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 import mimetypes
 import os
@@ -21,7 +22,7 @@ from .security import (
     require_safe_state_change,
     session_cookie_header,
 )
-from .status_snapshot import SnapshotError, load_snapshot
+from .status_snapshot import MAX_SNAPSHOT_BYTES, SnapshotError, load_snapshot
 
 HOST = "127.0.0.1"
 PORT = 8080
@@ -190,16 +191,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             }
         self._send_json(HTTPStatus.OK, snapshot)
 
-    def _status_fingerprint(self) -> tuple[int, int] | None:
-        """Return non-sensitive metadata used only to detect export changes."""
+    def _status_fingerprint(self) -> tuple[int, bytes] | None:
+        """Return a bounded digest used only to detect export changes."""
 
         try:
-            status = self.status_path.stat()
+            with self.status_path.open("rb") as status_file:
+                contents = status_file.read(MAX_SNAPSHOT_BYTES + 1)
         except OSError:
             return None
-        if not stat.S_ISREG(status.st_mode):
-            return None
-        return (status.st_mtime_ns, status.st_size)
+        return (len(contents), hashlib.sha256(contents).digest())
 
     def _stream_status_events(self) -> None:
         """Signal snapshot replacement without streaming snapshot contents."""
