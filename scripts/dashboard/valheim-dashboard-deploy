@@ -49,6 +49,11 @@ run_as_source_owner() {
     /usr/sbin/runuser -u "$SOURCE_OWNER" -- "$@"
 }
 
+run_npm_as_source_owner() {
+    /usr/sbin/runuser -u "$SOURCE_OWNER" -- \
+        /usr/bin/env "PATH=$SOURCE_NODE_BIN:$PATH" "$SOURCE_NPM" "$@"
+}
+
 restore_previous_release() {
     if [[ -n "$previous_target" ]]; then
         atomic_link "$CURRENT_LINK" "$previous_target"
@@ -113,6 +118,12 @@ if [[ ! -x "$SOURCE_NPM" ]]; then
     printf 'valheim-dashboard-deploy: npm path is not executable: %s\n' "$SOURCE_NPM" >&2
     exit 1
 fi
+readonly SOURCE_NODE_BIN=$(/usr/bin/dirname -- "$SOURCE_NPM")
+if [[ ! -x "$SOURCE_NODE_BIN/node" ]]; then
+    printf 'valheim-dashboard-deploy: node is not executable beside npm: %s/node\n' \
+        "$SOURCE_NODE_BIN" >&2
+    exit 1
+fi
 
 (
     cd "$SOURCE_ROOT/backend"
@@ -121,9 +132,9 @@ fi
 )
 (
     cd "$SOURCE_ROOT/frontend"
-    run_as_source_owner "$SOURCE_NPM" ci
-    run_as_source_owner "$SOURCE_NPM" run lint
-    run_as_source_owner "$SOURCE_NPM" run build
+    run_npm_as_source_owner ci
+    run_npm_as_source_owner run lint
+    run_npm_as_source_owner run build
 )
 
 install -d -o root -g root -m 0755 "$RELEASES_DIRECTORY"

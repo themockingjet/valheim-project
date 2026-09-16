@@ -183,6 +183,9 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
         )
         self.assertIn("node_path=$(nvm which default 2>/dev/null)", deployer)
         self.assertIn('npm_path="${node_path%/node}/npm"', deployer)
+        self.assertIn('readonly SOURCE_NODE_BIN=$(/usr/bin/dirname -- "$SOURCE_NPM")', deployer)
+        self.assertIn('PATH=$SOURCE_NODE_BIN:$PATH', deployer)
+        self.assertIn('run_npm_as_source_owner ci', deployer)
         self.assertIn('readonly SOURCE_NPM', deployer)
         self.assertNotIn("run_as_source_owner /usr/bin/npm", deployer)
 
