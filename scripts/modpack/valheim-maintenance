@@ -131,7 +131,7 @@ trap recover EXIT
 publish_status running
 log maintenance_started
 /usr/bin/systemctl stop valheim.service
-/usr/games/steamcmd +force_install_dir /opt/valheim/server +login anonymous +app_update 896660 validate +quit
+/usr/games/steamcmd +force_install_dir /opt/valheim/server +login anonymous +app_info_update 1 +app_update 896660 validate +quit
 /usr/sbin/runuser -u valheim -- "$MODPACK_CLI" maintain
 deployment_activated=1
 wait_for_server_health

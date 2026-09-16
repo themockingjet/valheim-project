@@ -86,6 +86,34 @@ if [[ ! -x "$SOURCE_UV" ]]; then
     exit 1
 fi
 
+if ! SOURCE_NPM=$(
+    /usr/sbin/runuser -u "$SOURCE_OWNER" -- \
+        /usr/bin/env HOME="$SOURCE_HOME" USER="$SOURCE_OWNER" LOGNAME="$SOURCE_OWNER" \
+        /bin/bash -c '
+            npm_path=
+            if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+                . "$HOME/.nvm/nvm.sh"
+                if node_path=$(nvm which default 2>/dev/null); then
+                    npm_path="${node_path%/node}/npm"
+                fi
+            fi
+            if [[ -x "$npm_path" ]]; then
+                printf "%s\n" "$npm_path"
+            else
+                type -P npm
+            fi
+        '
+); then
+    printf 'valheim-dashboard-deploy: unable to find npm in %s login environment\n' \
+        "$SOURCE_OWNER" >&2
+    exit 1
+fi
+readonly SOURCE_NPM
+if [[ ! -x "$SOURCE_NPM" ]]; then
+    printf 'valheim-dashboard-deploy: npm path is not executable: %s\n' "$SOURCE_NPM" >&2
+    exit 1
+fi
+
 (
     cd "$SOURCE_ROOT/backend"
     run_as_source_owner "$SOURCE_UV" sync --locked
@@ -93,9 +121,9 @@ fi
 )
 (
     cd "$SOURCE_ROOT/frontend"
-    run_as_source_owner /usr/bin/npm ci
-    run_as_source_owner /usr/bin/npm run lint
-    run_as_source_owner /usr/bin/npm run build
+    run_as_source_owner "$SOURCE_NPM" ci
+    run_as_source_owner "$SOURCE_NPM" run lint
+    run_as_source_owner "$SOURCE_NPM" run build
 )
 
 install -d -o root -g root -m 0755 "$RELEASES_DIRECTORY"

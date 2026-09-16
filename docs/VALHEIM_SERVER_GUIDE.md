@@ -5,6 +5,19 @@ stack on Ubuntu 22.04 or later. It intentionally does not commit server data,
 credentials, downloaded archives, runtime state, generated locks, or world
 backups.
 
+WSL2 is supported when running an Ubuntu distribution with systemd enabled.
+Add the following to `/etc/wsl.conf`, then run `wsl.exe --shutdown` from
+Windows before reopening the distribution:
+
+```ini
+[boot]
+systemd=true
+```
+
+Verify that `systemctl is-system-running` reports `running` before using the
+Make targets. The server runtime and `/opt/valheim` should remain inside the
+Linux filesystem rather than under `/mnt/c`.
+
 The deployment sequence is fixed:
 
 1. Provision the dedicated-server host and install inactive base units.
@@ -146,6 +159,7 @@ dashboard access only to trusted operators.
 
 | Directory | Owner and mode | Purpose |
 | --- | --- | --- |
+| `/opt/valheim` | `valheim:valheim`, `0750` | Dedicated-server home and SteamCMD state. |
 | `/opt/valheim/server` | `valheim:valheim`, `0750` | SteamCMD-installed server files. |
 | `/opt/valheim/data` | `valheim:valheim`, `0750` | Worlds and access lists. |
 | `/opt/valheim/logs` | `valheim:valheim`, `0750` | Dedicated-server log. |

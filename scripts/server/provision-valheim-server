@@ -32,11 +32,12 @@ if ! /usr/bin/id -u valheim >/dev/null 2>&1; then
 fi
 
 /usr/bin/install -d -o valheim -g valheim -m 0750 \
-    "$SERVER_DIRECTORY" "$DATA_DIRECTORY" "$LOG_DIRECTORY"
+    "$SERVER_ROOT" "$SERVER_DIRECTORY" "$DATA_DIRECTORY" "$LOG_DIRECTORY"
 
-/usr/sbin/runuser -u valheim -- "$STEAMCMD" \
+/usr/sbin/runuser -u valheim -- /usr/bin/env HOME="$SERVER_ROOT" "$STEAMCMD" \
     +force_install_dir "$SERVER_DIRECTORY" \
     +login anonymous \
+    +app_info_update 1 \
     +app_update 896660 validate \
     +quit
 "$SCRIPTS_ROOT/migrate-valheim-systemd"

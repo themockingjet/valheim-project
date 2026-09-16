@@ -169,6 +169,23 @@ class DashboardHelperDeploymentTests(unittest.TestCase):
             deployer,
         )
 
+    def test_dashboard_deployer_resolves_npm_from_source_owner_environment(self) -> None:
+        deployer_path = PROJECT_ROOT / "scripts" / "dashboard" / "valheim-dashboard-deploy"
+        deployer = deployer_path.read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", deployer_path], check=True)
+        self.assertIn(
+            "/usr/sbin/runuser -u \"$SOURCE_OWNER\" -- \\",
+            deployer,
+        )
+        self.assertIn(
+            'HOME="$SOURCE_HOME" USER="$SOURCE_OWNER" LOGNAME="$SOURCE_OWNER"',
+            deployer,
+        )
+        self.assertIn("node_path=$(nvm which default 2>/dev/null)", deployer)
+        self.assertIn('npm_path="${node_path%/node}/npm"', deployer)
+        self.assertIn('readonly SOURCE_NPM', deployer)
+        self.assertNotIn("run_as_source_owner /usr/bin/npm", deployer)
+
     def test_rollback_helper_rejects_invalid_cooldown_state(self) -> None:
         contents = (SCRIPTS / "valheim-rollback-request").read_text(encoding="utf-8")
         self.assertIn("cooldown_state_invalid", contents)
