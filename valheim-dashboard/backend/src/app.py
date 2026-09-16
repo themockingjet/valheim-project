@@ -204,6 +204,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def _stream_status_events(self) -> None:
         """Signal snapshot replacement without streaming snapshot contents."""
 
+        fingerprint = self._status_fingerprint()
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
@@ -211,7 +212,6 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
 
-        fingerprint = self._status_fingerprint()
         deadline = time.monotonic() + STATUS_EVENT_MAX_SECONDS
         heartbeat_at = time.monotonic() + STATUS_EVENT_HEARTBEAT_SECONDS
         try:
