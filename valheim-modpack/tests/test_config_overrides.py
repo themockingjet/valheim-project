@@ -9,6 +9,7 @@ from src.config_overrides import (
     ConfigError,
     apply_config_request,
     build_config_export,
+    capture_active_config,
     publish_config_export,
 )
 
@@ -73,6 +74,62 @@ class ConfigOverrideTests(unittest.TestCase):
             "# retained comment\n[General]\nEnabled = false\nUnknown setting\n",
         )
         self.assertEqual(self.config.read_text(encoding="utf-8").splitlines()[2], "Enabled = true")
+
+    def test_captures_active_changes_but_does_not_replace_queued_dashboard_overrides(self) -> None:
+        previous = self.root / "releases" / "release-previous"
+        previous_config = previous / "BepInEx" / "config"
+        previous_config.mkdir(parents=True)
+        (previous / "release-lock.json").write_text("{}", encoding="utf-8")
+        (previous_config / "Example.cfg").write_text(
+            "# retained comment\n[General]\nEnabled = true\nUnknown setting\n",
+            encoding="utf-8",
+        )
+        (self.root / "previous").symlink_to(previous)
+        self.config.write_text(
+            "# retained comment\n[General]\nEnabled = false\nUnknown setting\n",
+            encoding="utf-8",
+        )
+
+        self.assertEqual(capture_active_config(self.root), ["Example.cfg"])
+        self.assertEqual(
+            (self.root / "config-overrides" / "Example.cfg").read_text(encoding="utf-8"),
+            self.config.read_text(encoding="utf-8"),
+        )
+
+        self.config.write_text(
+            "# retained comment\n[General]\nEnabled = true\nUnknown setting\n",
+            encoding="utf-8",
+        )
+        (self.root / "config-overrides" / "Example.cfg").write_text(
+            "# retained comment\n[General]\nEnabled = false\nUnknown setting\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(capture_active_config(self.root), [])
+        self.assertEqual(
+            (self.root / "config-overrides" / "Example.cfg").read_text(encoding="utf-8"),
+            "# retained comment\n[General]\nEnabled = false\nUnknown setting\n",
+        )
+
+        self.config.write_text(
+            "# retained comment\n[General]\nEnabled = maybe\nUnknown setting\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(capture_active_config(self.root), [])
+        self.assertEqual(
+            (self.root / "config-overrides" / "Example.cfg").read_text(encoding="utf-8"),
+            "# retained comment\n[General]\nEnabled = false\nUnknown setting\n",
+        )
+
+    def test_does_not_capture_a_config_without_a_previous_baseline(self) -> None:
+        previous = self.root / "releases" / "release-previous"
+        previous_config = previous / "BepInEx" / "config"
+        previous_config.mkdir(parents=True)
+        (previous / "release-lock.json").write_text("{}", encoding="utf-8")
+        (previous_config / "Other.cfg").write_text("[General]\nEnabled = true\n", encoding="utf-8")
+        (self.root / "previous").symlink_to(previous)
+
+        self.assertEqual(capture_active_config(self.root), [])
+        self.assertFalse((self.root / "config-overrides").exists())
 
     def test_rejects_unknown_keys_and_unsafe_paths_without_writing(self) -> None:
         with self.assertRaisesRegex(ConfigError, "not managed"):

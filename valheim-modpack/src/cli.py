@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-from .config_overrides import apply_config_request
+from .config_overrides import apply_config_request, capture_active_config
 from .deployment import activate_release, load_lock, rollback, stage_release
 from .errors import ModpackError
 from .hexium import HexiumClient
@@ -192,6 +192,18 @@ def _apply_pending_config_command(arguments: argparse.Namespace) -> int:
             ) from error
         result = apply_config_request(request, modpack_root=arguments.root)
         print(json.dumps({"updated_files": result}, sort_keys=True))
+        return 0
+    finally:
+        lock_file.close()
+
+
+def _capture_active_config_command(arguments: argparse.Namespace) -> int:
+    """Persist configuration changes made in the active release before maintenance."""
+
+    lock_file = _with_lock(arguments.root)
+    try:
+        captured = capture_active_config(arguments.root)
+        print(json.dumps({"captured_files": captured}, sort_keys=True))
         return 0
     finally:
         lock_file.close()
@@ -380,6 +392,12 @@ def build_parser() -> argparse.ArgumentParser:
     apply_pending_config_parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     apply_pending_config_parser.add_argument("--request", type=Path, required=True)
     apply_pending_config_parser.set_defaults(handler=_apply_pending_config_command)
+    capture_active_config_parser = subparsers.add_parser(
+        "capture-active-config",
+        help="persist configuration changes from the active release",
+    )
+    capture_active_config_parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
+    capture_active_config_parser.set_defaults(handler=_capture_active_config_command)
     gc_parser = subparsers.add_parser("gc", help="prune unreferenced archives and old releases")
     gc_parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     gc_parser.add_argument("--cache", type=Path, default=DEFAULT_ROOT / "cache")

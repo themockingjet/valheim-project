@@ -187,11 +187,14 @@ The dashboard configuration editor lists existing regular BepInEx `.cfg`
 files in the active modpack release or its managed override directory. It
 edits only existing `[section]` / `key = value` settings and writes queued
 overrides under `/opt/valheim/modpack/config-overrides`; it never changes the
-active release or restarts the server. The next scheduled maintenance run
-copies these overrides into the newly staged release. Comments and
-unrecognized configuration lines are retained. Configuration values are
-available through the localhost-only same-origin dashboard API, so grant
-dashboard access only to trusted operators.
+active release or restarts the server. Before scheduled maintenance stops
+Valheim, the maintenance helper compares the active release with the previous
+release and preserves changed in-game settings as managed overrides. Queued
+dashboard edits are then applied and take precedence for that maintenance
+run. The resulting overrides are copied into the newly staged release.
+Comments and unrecognized configuration lines are retained. Configuration
+values are available through the localhost-only same-origin dashboard API, so
+grant dashboard access only to trusted operators.
 
 ## Installed systemd templates
 

@@ -79,11 +79,27 @@ def _iter_config_files(root: Path) -> dict[str, Path]:
 
 
 def _active_config_directory(modpack_root: Path) -> Path | None:
-    current = modpack_root / "current"
-    if not current.is_symlink():
+    link = modpack_root / "current"
+    if not link.is_symlink():
         return None
     try:
-        release = current.resolve(strict=True)
+        release = link.resolve(strict=True)
+        releases = (modpack_root / "releases").resolve(strict=True)
+        release.relative_to(releases)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not (release / "release-lock.json").is_file():
+        return None
+    config_directory = release / "BepInEx" / "config"
+    return config_directory if config_directory.is_dir() and not config_directory.is_symlink() else None
+
+
+def _release_config_directory(modpack_root: Path, link_name: str) -> Path | None:
+    link = modpack_root / link_name
+    if not link.is_symlink():
+        return None
+    try:
+        release = link.resolve(strict=True)
         releases = (modpack_root / "releases").resolve(strict=True)
         release.relative_to(releases)
     except (OSError, RuntimeError, ValueError):
@@ -223,6 +239,38 @@ def publish_config_export(
     os.chmod(output, 0o640)
     if group_id is not None:
         os.chown(output, 0, group_id)
+
+
+def capture_active_config(modpack_root: Path) -> list[str]:
+    """Persist active config changes that are newer than the previous release."""
+
+    active_config = _active_config_directory(modpack_root)
+    if active_config is None:
+        return []
+    active_files = _iter_config_files(active_config)
+    if len(active_files) > MAX_CONFIG_FILES:
+        raise ConfigError("managed configuration exceeds the file limit")
+    previous_config = _release_config_directory(modpack_root, "previous")
+    if previous_config is None:
+        return []
+    existing_overrides = _iter_config_files(modpack_root / "config-overrides")
+    captured: list[str] = []
+    for relative_path, source in active_files.items():
+        previous = previous_config / relative_path
+        if not previous.is_file():
+            continue
+        previous_contents = previous.read_bytes()
+        override = existing_overrides.get(relative_path)
+        if override is not None and override.read_bytes() != previous_contents:
+            continue
+        source_text = _read_config(source)
+        source_contents = source_text.encode("utf-8")
+        if source_contents == previous_contents:
+            continue
+        destination = _override_destination(modpack_root / "config-overrides", relative_path)
+        _atomic_write(destination, source_text)
+        captured.append(relative_path)
+    return captured
 
 
 def _validated_relative_path(value: object) -> str:
